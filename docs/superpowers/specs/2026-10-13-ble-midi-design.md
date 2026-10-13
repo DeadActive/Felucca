@@ -173,7 +173,7 @@ back). Felucca has four tracks:
 | Knob 1-4 | the selected track's four HOME knob parameters, one step per click, clamped, recorded as automation as the FM-1's knobs are |
 | Knob 5-8 | nothing |
 | MUTE 1-4 | mute / unmute track n (the track's MUTE parameter) |
-| SOLO 1-4 | solo / unsolo track n (latched; the GLO layer's solo mask) |
+| SOLO 1-4 | solo / unsolo track n (latched; a mask of the mixer's own, applied where the FX layer's track mutes are) |
 | REC 1-4 | select track n and press REC for it |
 | SELECT 1-4 | select track n |
 | buttons 5-8 of each row | nothing |
@@ -205,7 +205,9 @@ the mixer disconnects or MODE leaves SMC DAW.
 
 1. The plain build stays byte-identical to `v1.6`, so Bluetooth changes live only in the Bluetooth build. Unlike
    Hortator, the plain build does not round-trip the remembered device through named fields: it keeps the bytes.
-2. Solo uses Felucca's existing GLO-layer solo mask instead of a new `song.solo`.
+2. Solo is a runtime mask of the mixer's own (`smc_solo`, applied in `perform.c` as the FX layer's track mutes),
+   not a new `song.solo` and not the GLO layer's mask: that one is recomputed from held keys every pass and is off
+   while the menu is open (amended during the work, 2026-10-13).
 3. The remembered device is stored in unused favourites bytes (section 10). A later upstream version could claim
    them; a merge would then move them.
 4. `FELUCCA_VERSION` is not changed in the Bluetooth build.
@@ -223,3 +225,15 @@ the mixer disconnects or MODE leaves SMC DAW.
 The JieLi BT libraries linked into the Bluetooth image come from the AC79 SDK (Apache-2.0), as the SDK files the
 package already carries; `LICENSING.md` gets a row. `ble_rf_tables.c` is an Apache-2.0 copy, credited in the
 file. The SMC mapping values come from the user's own `smc-seq` project. The BLE files keep their headers (GPL-3.0-only, 2026 DEADACTIVE).
+
+## 15. Amendments made during the work (2026-10-13)
+
+- The Bluetooth build leaves out all three sets, PIANO, FLUTE and SAX: no smaller choice keeps the 32 KB margin
+  (`docs/ble/FIT.md`).
+- The page's cursor wraps, as the menu's rows; three device rows are in view of up to eight; DEVICE shows the
+  address in brief until the name is seen.
+- When the link drops in MIDI mode, CC 64 = 0 and CC 123 are put into the input ring on each channel the device
+  played.
+- The mixer's buttons and knobs do nothing while a dialog, NAME or UPDATE MODE is up; they work with the menu open.
+- The previous / next track buttons wrap.
+- `tools/build.py` tries a tool again when Docker answers "exec format error".

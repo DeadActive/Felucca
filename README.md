@@ -4,6 +4,11 @@
 
 ![Felucca 1.0](docs/felucca-1.0.png)
 
+> **This fork** (<https://github.com/DeadActive/Felucca>, branch `ble`) adds a second build, `FELUCCA_BLE=1 ./build.sh`:
+> Felucca 1.6 as a Bluetooth LE MIDI host (scan, connect, MIDI in and out, BLE clock, the M-VAVE SMC-Mixer in its DAW
+> mode), from Hortator. It leaves out the built-in SAMPLE sets to fit, and has not been run on a device in this form
+> yet: [docs/ble/BLUETOOTH.md](docs/ble/BLUETOOTH.md). The plain build is upstream Felucca 1.6, byte for byte.
+
 Multi-engine synthesizer firmware for the M-VAVE FM-1, **version 1.6**. Connect the FM-1 to a computer by USB, open the
 [web installer](https://hugelton.github.io/Felucca/) in Chrome or Edge and press Install; no extra hardware is needed.
 Installing is at your own risk: M-VAVE's updater or the installer's **Return to official V15** takes you back.

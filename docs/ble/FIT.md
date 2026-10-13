@@ -37,7 +37,18 @@ So the Bluetooth build leaves out all three (`tools/build.py` `BLE_SMP_DROP`). I
 play the user slots USR1-3; a sound that selects PIANO, FLUTE or SAX plays a sine at the note's pitch and the screen
 says NO SAMPLE once; SLICE keeps BREAK and the user slots and has no PIANO source. The plain build has every set.
 
-Keeping one sustained set (FLUTE or SAX) would leave 18,620 B before the page and the SMC layout, about 10 KB after
+## The whole Bluetooth build (the page, MIDI mode, the SMC layout)
+
+| | image B | slot free B | `.data + .bss` B (of 73,728) | pool B (of 368,640) |
+| --- | ---: | ---: | ---: | ---: |
+| the stack alone, the three sets left out | 531,376 | 50,188 | 67,612 | 352,640 |
+| + MIDI mode, the settings bytes | 532,008 | 49,556 | 67,756 | 352,640 |
+| + the Bluetooth page | 535,272 | 46,292 | 67,756 | 352,936 |
+| **+ the SMC-Mixer layout (the build as it is)** | **536,936** | **44,628** | **67,756** (5,972 spare, 4,096 kept) | **352,992** (15,648 spare, 8,192 kept) |
+
+The core's side costs 5,560 B of flash and 144 B of RAM; the page's and the layout's state is in the pool.
+
+Keeping one sustained set (FLUTE or SAX) would leave 18,620 B before the page and the SMC layout, about 13 KB after
 them: possible if the margin is given up. That is the user's call:
 `FELUCCA_SMP_DROP=PIANO,FLUTE FELUCCA_BLE=1 ./build.sh` builds that variant, and the build then stops on the 32 KB
 check until the check is lowered.
