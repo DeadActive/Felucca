@@ -485,8 +485,13 @@ run "gate 2a: the update path's sources = the base upstream release's" python3 t
 run "gate 3 tool self-test (BT start-up reachable at boot)" python3 tools/check_ble_boot.py --selftest
 # the core's side, built as the Bluetooth build is (FELUCCA_BLE=1) on the UI harness, the BLE unit's entry points stubs
 if [ -f build/gen/ui_fonts.h ]; then
-    $CC -w -DFELUCCA_BLE=1 -Ibuild/gen -Ifirmware/src -Itests -o "$OUT/bt_midi_test" tests/bt_midi_test.c -lm
+    $CC -w -DFELUCCA_BLE=1 -DBT_TEST_PAGE=1 -Ibuild/gen -Ifirmware/src -Itests -o "$OUT/bt_midi_test" tests/bt_midi_test.c -lm
     run "Bluetooth MIDI: the settings bytes, MIDI mode in (source 3) and out, CLK BLE, the release on a lost link" "$OUT/bt_midi_test"
+    $CC -w -DFELUCCA_BLE=1 -Ibuild/gen -Ifirmware/src -Itests -o "$OUT/bt_page_test" tests/bt_page_test.c -lm
+    run "Bluetooth page: the row in MENU > SYSTEM, the cursor, ON / OFF, MODE, DEVICE, SCAN, a pick, the state line" "$OUT/bt_page_test"
+    $CC -w -DFELUCCA_BLE=1 -Ibuild/gen -Ifirmware/src -Itests -o "$OUT/bt_page_render" tests/bt_page_render.c -lm
+    run "Bluetooth page: every state in every palette, FLAT and LINE, through the layout lint" "$OUT/bt_page_render" build/ui_bt
+    if python3 -c "import PIL" 2>/dev/null; then python3 tests/ui_render.py build/ui_bt >/dev/null; fi
     $CC -w -Ibuild/gen -Ifirmware/src -Itests -o "$OUT/clk_ble_plain_test" tests/clk_ble_plain_test.c -lm
     run "the plain build opens a project saved with CLK BLE (as TRS)" "$OUT/clk_ble_plain_test"
 fi

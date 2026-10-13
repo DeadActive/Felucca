@@ -63,6 +63,7 @@ void core_ble_link(int up)
 {
     bt_link(up);                                /* first: smc_link's frame needs the mode */
     smc_link(up);
+    ui_message(up ? "BT CONNECTED" : "BT LOST");
 }
 /* the main loop's hook (editor.c ed_service: every pass and in its 15 ms wait): the BT stack's slice (at most 5 ms,
  * ble/ble.c), then the core's own Bluetooth work, cheap while nothing changed */

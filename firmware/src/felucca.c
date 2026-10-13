@@ -95,6 +95,7 @@
 static void bt_service(void);    /* core_ble_api.c: the BT stack's slice and the core's Bluetooth work (ed_service) */
 #include "bt_set.c"              /* MODE and the remembered device, in the settings */
 #include "bt_midi.c"             /* MIDI mode: in (the input ring, source 3) and out; SMC DAW mode: to smc.c */
+#include "bt_page.c"             /* the Bluetooth page (MENU > SYSTEM > BLUETOOTH, ui_menu.c ui.menu 4) */
 #endif
 
 /* --------------------------------------------- storage, update, editor --- */
