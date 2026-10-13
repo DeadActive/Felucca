@@ -1,0 +1,93 @@
+# Bluetooth MIDI on Felucca (the Bluetooth build)
+
+BLE MIDI: 2026 DEADACTIVE. From Hortator 0.16.0 (<https://github.com/DeadActive/hortator>), on Felucca 1.6.
+
+`FELUCCA_BLE=1 ./build.sh` builds Felucca with a Bluetooth LE MIDI **host**: the FM-1 scans for a BLE-MIDI device (a
+keyboard, a controller, an M-VAVE SMC-Mixer), connects to it, and takes and sends MIDI over it. The package is
+`build/felucca-ble.fwsc`. The plain build (`./build.sh`) is Felucca 1.6 as upstream, byte for byte, and either
+installs over the other.
+
+**Not yet run on a device in this form.** The BLE stack is the one Hortator runs on the FM-1; its place in Felucca
+1.6 is checked by the build's gates and the host tests only. [DEVICE_STEPS.md](DEVICE_STEPS.md) is the check sheet.
+
+## What the Bluetooth build gives up
+
+The built-in SAMPLE sets PIANO, FLUTE and SAX (104 KB) are left out to make room ([FIT.md](FIT.md)). The SAMPLE
+and GRAIN engines play the user slots USR1-3; a sound that selects a built-in set plays a sine at the note's pitch and
+the screen says NO SAMPLE once; SLICE keeps BREAK and the user slots and has no PIANO source. Everything else is
+Felucca 1.6.
+
+## The page
+
+MENU (hold HOME) > SYSTEM > **BLUETOOTH**, OCT+. PRESETS moves the cursor, any of KNOB 1-4 changes the row, OCT+
+acts on it, OCT- goes back to the menu, HOME closes the menu.
+
+| Row | A knob | OCT+ |
+| --- | --- | --- |
+| BLUETOOTH | right ON, left OFF | ON / OFF |
+| MODE | AUTO, SMC DAW, MIDI (stops at the ends) | the next one (wraps) |
+| DEVICE | left: forget the remembered device (a link drops) | - |
+| SCAN | - | a 10 s scan (Bluetooth ON only) |
+| a device found (BLE-MIDI ones first; up to 8, three in view) | - | remember it and connect to it |
+
+- **Bluetooth is off at every power-on.** ON starts it; it then stays started until power-off (OFF disconnects and
+  stops reconnecting). ON is not saved.
+- With a remembered device, ON reconnects to it when it is seen, and again after the link drops. A scan from the
+  page pauses that while the page is open.
+- The state line: OFF, STARTING, IDLE, SCANNING n S, CONNECTING, CONNECTED + the device's name, FAILED + the reason
+  (`NO RF TRIM IN FLASH`: this FM-1 has no stored radio calibration and Bluetooth cannot start on it;
+  `BT START TIMEOUT`). After FAILED only a power cycle starts it again. Under it: the last error.
+- The screen says `BT CONNECTED` and `BT LOST`.
+- MODE and the remembered device are saved with the settings.
+
+## MODE
+
+- **MIDI:** the device is a third MIDI input beside USB and TRS: notes by channel (MENU > MIDI > MIDI IN), pitch
+  bend, sustain, CCs, the modulation matrix's sources, MIDI LEARN. GLO > CLOCK > CLK has a fourth source, **BLE**:
+  the device's Start / Stop / clock run the transport. The FM-1's keys (on the track's channel) and the mod wheel
+  (SELECT as MODW) are sent to the device too. No clock is sent to it. When the link drops, the notes and the pedal
+  the device held are released.
+- **SMC DAW:** the M-VAVE SMC-Mixer in its DAW (Mackie Control) mode, below.
+- **AUTO** (default): SMC DAW when the connected device's name starts with `SMC`, else MIDI.
+
+A project saved with CLK BLE opens in the plain build with CLK TRS (its last source): set CLK to INT there.
+
+## The SMC-Mixer (DAW mode)
+
+| On the mixer | Felucca |
+| --- | --- |
+| Fader 1-4 | track 1-4 LEVEL |
+| Fader 5-8 | track 1-4 REV (the reverb send) |
+| Master fader | nothing |
+| Knob 1-4 | the selected track's four HOME parameters, a step a click |
+| Knob 5-8 | nothing |
+| MUTE 1-4 | mute / unmute the track |
+| SOLO 1-4 | solo / unsolo the track (the others are silenced; their MUTE is untouched) |
+| REC 1-4 | select the track and press REC for it (armed while stopped: the transport starts, as on the FM-1) |
+| SELECT 1-4 | select the track |
+| PLAY / STOP / REC | play when stopped / stop / REC for the selected track |
+| BANK or CHANNEL left / right | the previous / next track (wraps) |
+| strips 5-8's buttons, REW, FF, the arrows | nothing |
+
+- **LEDs:** MUTE = muted, SOLO = soloed, REC n = armed, SELECT = the selected track, PLAY = playing, STOP = stopped,
+  REC = any track armed.
+- **Fader pickup:** a fader does nothing until it comes within 2 of the value or passes it; the mixer blinks its LED
+  until then. A value changed on the FM-1 (a knob, a load, automation) releases its fader again.
+- A fader or knob moved while its track records is recorded as automation, as the FM-1's own knobs are.
+- Solo ends when the mixer disconnects or MODE leaves SMC DAW.
+- While a dialog, NAME or UPDATE MODE is on the screen, the mixer's buttons and knobs do nothing.
+
+## The console
+
+The USB serial console (MENU > SYSTEM > USB SERIAL ON) has `ble` (state, counters, the heap, the loop period, each
+task's free stack, the device list), and `ble start`, `ble scan`, `ble list`, `ble connect N`, `ble stop`.
+
+## What keeps the FM-1 safe
+
+Every Bluetooth build stops unless: the update loader is byte-identical to Felucca 1.6's (gate 1); the update
+path's sources are 1.6's and its machine code equals a reference link without the BLE unit (gates 2a, 2b); no
+Bluetooth start-up is reachable at boot, only from the page's ON and the console's `ble start` (gate 3); the radio
+library's RAM code reaches nothing in flash (gate 4). `GATE5=1 sh tests/run_tests.sh` also proves the plain build is
+the same bytes with every Bluetooth file deleted (gate 5). The OCT- + OCT+ 5 s UBOOT key and the updater work with
+Bluetooth off or on. `tools/ble_base.txt` names the upstream release and its loader: after merging a later upstream
+release, put its tag and its loader's hash there.

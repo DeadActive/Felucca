@@ -68,6 +68,26 @@ Build options (environment, `0` or `1`; defaults in `firmware/src/felucca.c`, `c
 `FELUCCA_USB_LAYOUT` (`0` to `3`, default `0`) picks other USB descriptor layouts for testing; see
 `firmware/src/usb.c`.
 
+## The Bluetooth build
+
+```
+FELUCCA_BLE=1 ./build.sh          # build/felucca-ble.fwsc
+```
+
+Felucca with a Bluetooth LE MIDI host ([docs/ble/BLUETOOTH.md](docs/ble/BLUETOOTH.md); not part of upstream
+Felucca). It needs, besides the above:
+
+- a full copy of the JieLi AC79 SDK **V1.2.0** (its BT libraries are linked in; pinned by hash in
+  `tools/ble_libs.py`): `AC79_BT_SDK`, default `~/Downloads/fw-AC79_AIoT_SDK-release-AC79NN_SDK_V1.2.0`;
+- Docker, also on Linux (the SDK is mounted into the container).
+
+The build leaves out the built-in SAMPLE sets PIANO, FLUTE and SAX for the room (`tools/build.py` `BLE_SMP_DROP`;
+`FELUCCA_SMP_DROP=FLUTE,SAX` overrides it) and stops unless the image keeps 32 KB of the app slot free and every
+gate holds (the update loader, the update path, no Bluetooth at boot, RAM code: `docs/ble/BLUETOOTH.md`).
+`BLE_MEASURE=1` links an image that does not fit, to measure it; it makes no package. The plain build is unchanged
+by all of this: `GATE5=1 sh tests/run_tests.sh` proves it is the same bytes without the Bluetooth files. Run the
+tests on a plain build (`./build.sh` first).
+
 ## Samples
 
 The CC0 instrument samples that the SAMPLE engine uses are in `assets/samples-cc0/`

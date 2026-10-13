@@ -51,6 +51,8 @@ All by Hügelton Instruments (Leo Kuroshita), in this tree:
 | X0X by charlesvestal (<https://github.com/charlesvestal/fm1-x0x>), a Felucca fork: the design of the browser emulator (the worklet, the device clock driven by its audio, the exports); its files credit it in their headers | GPL-3.0 | `web/emu/` |
 | DotGothic16 font by The DotGothic16 Project Authors (<https://github.com/fontworks-fonts/DotGothic16>): the browser emulator's knob labels, served with its page (cut to printable ASCII; the font declares no Reserved Font Name) | SIL OFL 1.1 | `web/emu/fonts/DotGothic16-subset.woff`, `LICENSES/OFL-DotGothic16.txt` (also `web/emu/fonts/OFL.txt`) |
 | JieLi AC79 SDK by JieLi Technology: three of its files go into every `.fwsc` package (below); none are in this tree | Apache-2.0 | `LICENSES/Apache-2.0.txt` |
+| JieLi AC79 SDK V1.2.0 by JieLi Technology, the Bluetooth build only (`FELUCCA_BLE=1`): its BT libraries (`btctrler.a`, `btstack.a`, `wl_rf_common.a`, `crypto_toolbox_Osize.a`, `lib_ccm_aes.a`, `libcompiler_rt.a`, members of `system.a` and `cpu.a`) and two of its configuration sources are linked into that image; none are in this tree. Its radio tables are, as a copy | Apache-2.0 | `tools/ble_libs.py`, `firmware/src/ble/ble_rf_tables.c`, `LICENSES/Apache-2.0.txt` |
+| The BLE MIDI host: the BLE unit, the Bluetooth page, the SMC-Mixer layout, their tools and tests (2026 DEADACTIVE, from Hortator, <https://github.com/DeadActive/hortator>) | GPL-3.0-only | `firmware/src/ble/`, `firmware/src/bt_*.c`, `firmware/src/smc.c`, `firmware/src/core_ble_api.c`, `docs/ble/` |
 
 On the device, HOME held > ABOUT opens the information screen; turning PRESETS scrolls on into
 CREDITS, a short list of these authors, licences and source URLs.
