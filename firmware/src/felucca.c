@@ -93,6 +93,8 @@
 #endif
 #include "ble/ble_core.h"        /* the BLE unit's entry points (ble/ble.c, its own object) */
 static void bt_service(void);    /* core_ble_api.c: the BT stack's slice and the core's Bluetooth work (ed_service) */
+#include "bt_set.c"              /* MODE and the remembered device, in the settings */
+#include "bt_midi.c"             /* MIDI mode: in (the input ring, source 3) and out; SMC DAW mode: to smc.c */
 #endif
 
 /* --------------------------------------------- storage, update, editor --- */

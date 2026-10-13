@@ -12,6 +12,7 @@ static void bt_link(int up) { (void)up; }
 static void bt_midi_frame(void) {}
 #endif
 #ifndef SMC_C
+static void smc_in(uint32_t pkt) { (void)pkt; }
 static void smc_link(int up) { (void)up; }
 static void smc_frame(void) {}
 #endif

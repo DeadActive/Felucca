@@ -483,6 +483,13 @@ run "BLE fault path: records and reboots, never waits on interrupts" python3 tes
 run "gate 2 tool self-test (update path: machine code, sources)" python3 tools/check_update_path.py --selftest
 run "gate 2a: the update path's sources = the base upstream release's" python3 tools/check_update_path.py --sources
 run "gate 3 tool self-test (BT start-up reachable at boot)" python3 tools/check_ble_boot.py --selftest
+# the core's side, built as the Bluetooth build is (FELUCCA_BLE=1) on the UI harness, the BLE unit's entry points stubs
+if [ -f build/gen/ui_fonts.h ]; then
+    $CC -w -DFELUCCA_BLE=1 -Ibuild/gen -Ifirmware/src -Itests -o "$OUT/bt_midi_test" tests/bt_midi_test.c -lm
+    run "Bluetooth MIDI: the settings bytes, MIDI mode in (source 3) and out, CLK BLE, the release on a lost link" "$OUT/bt_midi_test"
+    $CC -w -Ibuild/gen -Ifirmware/src -Itests -o "$OUT/clk_ble_plain_test" tests/clk_ble_plain_test.c -lm
+    run "the plain build opens a project saved with CLK BLE (as TRS)" "$OUT/clk_ble_plain_test"
+fi
 
 if command -v node >/dev/null 2>&1; then
     run "web pages: editor protocol + samples, package builder, update protocol" node web/test_web.mjs

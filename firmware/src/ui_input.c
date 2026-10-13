@@ -120,6 +120,9 @@ static void sel_play(uint32_t m, int32_t s)
                                                                                   * other) */
         fm1_irq_off();                                 /* (the out ring is the audio ISR's: it must not run now) */
         midi_out_event(0x0Bu | (0xB0u | trk_midi_ch(song.sel)) << 8 | 1u << 16 | (uint32_t)t->mw << 24);
+#if FELUCCA_BLE
+        bt_midi_out_isr(0x0Bu | (0xB0u | trk_midi_ch(song.sel)) << 8 | 1u << 16 | (uint32_t)t->mw << 24);
+#endif
         fm1_irq_on();
         fmt_int(b, t->mw);
         ui_say("MODW ", b);

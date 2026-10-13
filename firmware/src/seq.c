@@ -49,6 +49,9 @@ static volatile uint8_t kb_asleep;       /* MENU > SCREEN OFF (ui.c): the screen
                                           * wakes it (silent, no layer, its release nothing) */
 static uint8_t last_note = 60;
 static volatile uint8_t transport_req;   /* 1 start, 2 stop, 3 restart (from the UI) */
+#if FELUCCA_BLE
+static void bt_midi_out_isr(uint32_t pkt); /* bt_midi.c: what goes to USB MIDI out, to the BLE device too */
+#endif
 static volatile uint8_t panic_req;       /* bit per track: release every sounding note (preset / engine change) */
 static volatile uint8_t midi_hint;       /* MIDI IN played track n - 1, which is not the selected one (the UI says so) */
 static volatile uint8_t midi_seen;       /* 1.5.5 (#208): bit per track, a MIDI IN note-on played it since the UI last
@@ -718,6 +721,9 @@ static void key_on(uint32_t k, track_t *t)
             continue;
         input_on(t, x, vel);
         midi_out_event(0x09u | (0x90u | mc) << 8 | x << 16 | vel << 24);
+#if FELUCCA_BLE
+        bt_midi_out_isr(0x09u | (0x90u | mc) << 8 | x << 16 | vel << 24);   /* (bt_midi.c: the BLE device, MIDI mode) */
+#endif
     }
     in_key = 0;
     kb_chn[k] = (uint8_t)n;
@@ -735,6 +741,9 @@ static void key_off(uint32_t k, track_t *t)
             continue;
         input_off(t, x);
         midi_out_event(0x08u | (0x80u | mc) << 8 | x << 16);
+#if FELUCCA_BLE
+        bt_midi_out_isr(0x08u | (0x80u | mc) << 8 | x << 16);
+#endif
     }
 }
 

@@ -8,7 +8,7 @@
 #   tools/check_default_build.sh
 set -e
 cd "$(dirname "$0")/.."
-BT="firmware/src/ble firmware/src/core_ble_api.c firmware/hal/fm1_ble_hal.h firmware/hal/fm1_ctx.h
+BT="firmware/src/ble firmware/src/core_ble_api.c firmware/src/bt_set.c firmware/src/bt_midi.c firmware/hal/fm1_ble_hal.h firmware/hal/fm1_ctx.h
     firmware/hal/fm1_ctx.S firmware/app_ble.ld tools/ble_libs.py tools/ble_base.txt"
 bld() {                                         # a build, retried (up to 5) on Docker's "exec format error"
     for i in 1 2 3 4 5; do
