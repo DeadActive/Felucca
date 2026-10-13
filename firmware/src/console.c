@@ -344,7 +344,12 @@ static void con_params(void)
 static void con_exec(const char *p)
 {
     if (con_word(&p, "help") || con_word(&p, "?"))
+#if FELUCCA_BLE
+        con_puts("status  dbg  inp  crash  params  memr ADDR [LEN]  flr OFF [LEN]  uboot yes\r\n"
+                 "ble [start | scan | list | connect N | stop]\r\n");
+#else
         con_puts("status  dbg  inp  crash  params  memr ADDR [LEN]  flr OFF [LEN]  uboot yes\r\n");
+#endif
     else if (con_word(&p, "status"))
         con_status();
     else if (con_word(&p, "dbg"))
@@ -360,6 +365,10 @@ static void con_exec(const char *p)
 #if FELUCCA_FLASH
     else if (con_word(&p, "flr"))
         con_flr(p);
+#endif
+#if FELUCCA_BLE
+    else if (con_word(&p, "ble"))
+        ble_console(p);                                /* ble/ble_central.c: start, scan, list, connect N, stop, status */
 #endif
     else if (con_word(&p, "uboot")) {
         if (con_word(&p, "yes")) {

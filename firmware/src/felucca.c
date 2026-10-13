@@ -34,6 +34,9 @@
 #ifndef FELUCCA_VERSION
 #define FELUCCA_VERSION "v1.6" /* shown in the menu, the console and the editor; build.py --release X.Y */
 #endif
+#ifndef FELUCCA_BLE
+#define FELUCCA_BLE 0            /* the Bluetooth build (tools/build.py FELUCCA_BLE=1): BLE MIDI host, firmware/src/ble/ */
+#endif
 #if FELUCCA_OTA && !FELUCCA_FLASH
 #error "FELUCCA_OTA needs FELUCCA_FLASH"
 #endif
@@ -84,6 +87,13 @@
 #include "ui_menu.c"
 #include "ui_input.c"
 #include "ui_layer.c"              /* the quick layers (FX GLO SCL EDIT REC held; SEQ TOOLS: ui_tools.c) */
+#if FELUCCA_BLE
+#if !FELUCCA_OTA
+#error "FELUCCA_BLE needs FELUCCA_OTA (ed_service, the main loop's hook)"
+#endif
+#include "ble/ble_core.h"        /* the BLE unit's entry points (ble/ble.c, its own object) */
+static void bt_service(void);    /* core_ble_api.c: the BT stack's slice and the core's Bluetooth work (ed_service) */
+#endif
 
 /* --------------------------------------------- storage, update, editor --- */
 #if FELUCCA_FLASH
@@ -100,6 +110,9 @@
 #endif
 #if FELUCCA_CDC
 #include "console.c"
+#endif
+#if FELUCCA_BLE
+#include "core_ble_api.c"        /* the core functions the BLE unit calls (ble/ble_core.h) */
 #endif
 #include "master.c"              /* the MASTER pot (#137: read before the audio starts) */
 #include "main.c"
