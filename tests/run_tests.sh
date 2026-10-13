@@ -199,6 +199,12 @@ CC="${CC:-cc} -O1 -Wall -Wno-unused-function"
 fail=0
 run() { echo "== $1"; shift; "$@" || fail=1; }
 
+if grep -q "^ble_service:" build/felucca.dis 2>/dev/null; then    # (BLE MIDI: 2026 DEADACTIVE)
+    echo "build/ holds a Bluetooth build (FELUCCA_BLE=1): the budgets and the package tests are for the plain build."
+    echo "Run ./build.sh first."
+    exit 1
+fi
+
 $CC -o "$OUT/storage_test" tests/storage_test.c
 run "flash storage (A/B, torn writes)" "$OUT/storage_test"
 
@@ -466,6 +472,17 @@ run "installer CLI (fm1_install.py) against a simulated FM-1" python3 tests/inst
 
 # the Bluetooth build (FELUCCA_BLE=1, BLE MIDI: 2026 DEADACTIVE)
 run "SAMPLE sets left out of a build (gen_samples.py FELUCCA_SMP_DROP)" python3 tests/smp_drop_test.py "$OUT/smp_drop"
+for t in ble_midi ble_scan ble_central ble_vm; do $CC -o "$OUT/${t}_test" "tests/ble/${t}_test.c"; done
+$CC -Wno-deprecated-declarations -Ifirmware/src/ble -o "$OUT/ble_os_test" tests/ble/ble_os_test.c
+run "BLE-MIDI parser and packer" "$OUT/ble_midi_test"
+run "BLE scan table" "$OUT/ble_scan_test"
+run "BLE central state machine, reconnecting, UUID match, monitor text" "$OUT/ble_central_test"
+run "BLE stored RF calibration (config store)" "$OUT/ble_vm_test"
+run "BLE OS layer (host back end)" "$OUT/ble_os_test"
+run "BLE fault path: records and reboots, never waits on interrupts" python3 tests/ble/check_ble_fatal.py
+run "gate 2 tool self-test (update path: machine code, sources)" python3 tools/check_update_path.py --selftest
+run "gate 2a: the update path's sources = the base upstream release's" python3 tools/check_update_path.py --sources
+run "gate 3 tool self-test (BT start-up reachable at boot)" python3 tools/check_ble_boot.py --selftest
 
 if command -v node >/dev/null 2>&1; then
     run "web pages: editor protocol + samples, package builder, update protocol" node web/test_web.mjs
@@ -486,4 +503,8 @@ else
         node web/emu/emu_test.mjs build/emu/felucca.wasm "$OUT/emu_native.f32"
 fi
 
+# last: it rebuilds build/ twice (the plain build, the same bytes when it passes). GATE5=1 sh tests/run_tests.sh
+if [ "${GATE5:-0}" = 1 ]; then
+    run "gate 5: the plain build byte-identical without the Bluetooth files" sh tools/check_default_build.sh
+fi
 [ $fail -eq 0 ] && echo "ALL HOST TESTS PASSED" || { echo "HOST TESTS FAILED"; exit 1; }

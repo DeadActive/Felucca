@@ -316,6 +316,14 @@ def build_app():
         ram_code = sorted(set(re.findall(r"^\s*(\.\S*ram_code\S*)", (OUT / "felucca.map").read_text(), re.M)) - ok)
         if ram_code:
             raise SystemExit(f"build: BT library RAM code sections linked (not placed in RAM): {ram_code}")
+    ref_dis = None
+    if ble:                         # gate 2b's reference: the same core object, empty BLE entry points, app.ld
+        tc("cc", *[f for f in flags if f != "-Ibuild/gen"], "-c", FW / "src" / "ble" / "ble_stub.c", "-o",
+           OUT / "ble_stub.o")
+        tc("pi32v2/bin/ld", "-T", FW / "app.ld", OUT / "crt0.o", OUT / "fm1_vec.o", OUT / "fm1_isr.o",
+           OUT / "felucca.o", OUT / "ble_stub.o", "-o", OUT / "felucca_ref.elf")
+        ref_dis = tc("common/bin/objdump", "-d", OUT / "felucca_ref.elf")
+        (OUT / "felucca_ref.dis").write_text(ref_dis)
     for sect in ("text.bin", "data.bin", "ramtext.bin"):
         (OUT / sect).unlink(missing_ok=True)
     *_, syms, dis, rt = tc_all(("common/bin/objcopy", "-O", "binary", "-j", ".text", elf, OUT / "text.bin"),
@@ -342,7 +350,7 @@ def build_app():
             img += blob
     img += b"\xff" * (-len(img) % 4)
     (OUT / "felucca.bin").write_bytes(img)
-    return bytes(img), syms, dis, rt
+    return bytes(img), syms, dis, rt, ref_dis
 
 
 def rt_reach(rt):
@@ -489,8 +497,25 @@ def main():
         gen, ldr = ex.submit(generate), ex.submit(build_loader)
         gen.result()
         ota = ldr.result()
-    img, syms, dis, rt = build_app()
+    img, syms, dis, rt, ref_dis = build_app()
     errors, notes = check(img, syms, dis, rt, ble, measure)
+    if ble:                         # gates 2-3: every Bluetooth build stops on them
+        import check_update_path as cup
+        import check_ble_boot as cbb
+        base = cup.last_release()
+        ref = cup.selected(cup.functions(ref_dis))
+        e2a = cup.source_errors(base)
+        e2b = cup.compare(dis, cup.render(ref))
+        e3 = cbb.reachable_starts(dis)
+        errors += [f"gate 2a: {e}" for e in e2a] + [f"gate 2b: {e}" for e in e2b]
+        errors += [f"gate 3: BT start-up reachable at boot: {', '.join(e3)}"] if e3 else []
+        notes.append("gate 1: the update loader = the pinned one (tools/ble_base.txt)")
+        if not e2a:
+            notes.append(f"gate 2a: the update path's sources = {base}'s")
+        if not e2b:
+            notes.append(f"gate 2b: the update path's machine code = the reference core's ({len(ref)} functions)")
+        if not e3:
+            notes.append("gate 3: no BT start-up reachable at boot (only through ble_user_start)")
     hal_err = mmio_check()
     errors += hal_err
     if not hal_err:
