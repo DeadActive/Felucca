@@ -91,6 +91,9 @@ static volatile uint32_t kb_mask;     /* main: the button bits whose hold makes 
 static volatile uint8_t kb_lock;      /* main: a layer locked open (#83, no button held): 1 keys are the layer's, 2 FX's */
 static volatile uint8_t perf_solo;    /* main: tracks soloed in the GLO layer (the others muted as by a black key) */
 static volatile uint8_t perf_kill;    /* main: every effect off (the menu, a dialog, UBOOT) */
+#if FELUCCA_BLE
+static volatile uint8_t smc_solo;     /* main: tracks soloed from the SMC-Mixer (smc.c): latched, the menu open or not */
+#endif
 static volatile int8_t perf_k[4];     /* main: the knob macros, 0 = untouched: FILTER -100..100 (- LPF, + HPF),
                                        * CRUSH 0..100, THROW 0..100, DEPTH cut 0..100 (the buffer effects' level) */
 static volatile uint32_t kb_layer;    /* ISR: the keys held that are the layer's, a bit per key */
@@ -301,6 +304,10 @@ static __attribute__((noinline)) int perf_begin(uint32_t n)
     uint32_t held = perf_kill ? 0u : (perf_held | perf_latched | (perf_solo ? (~(uint32_t)perf_solo & 15u) << PF_M1 : 0u)) & perf_avail();
     uint32_t q, k, ph0, bnd;
     int32_t m;
+#if FELUCCA_BLE
+    if (smc_solo)                                  /* (the SMC-Mixer's SOLO: the others muted, perf_kill or not) */
+        held |= (~(uint32_t)smc_solo & 15u) << PF_M1;
+#endif
     if (!held && !pf.busy && !(perf_k[0] | perf_k[1] | perf_k[2])) {   /* idle: the clock only */
         pf.ph += n;
         pf.sync = 0;

@@ -489,6 +489,8 @@ if [ -f build/gen/ui_fonts.h ]; then
     run "Bluetooth MIDI: the settings bytes, MIDI mode in (source 3) and out, CLK BLE, the release on a lost link" "$OUT/bt_midi_test"
     $CC -w -DFELUCCA_BLE=1 -Ibuild/gen -Ifirmware/src -Itests -o "$OUT/bt_page_test" tests/bt_page_test.c -lm
     run "Bluetooth page: the row in MENU > SYSTEM, the cursor, ON / OFF, MODE, DEVICE, SCAN, a pick, the state line" "$OUT/bt_page_test"
+    $CC -w -DFELUCCA_BLE=1 -Ibuild/gen -Ifirmware/src -Itests -o "$OUT/smc_test" tests/smc_test.c -lm
+    run "SMC-Mixer DAW layout: faders with pickup, knobs, MUTE SOLO REC SELECT, the transport, the LEDs, the mixer gone" "$OUT/smc_test"
     $CC -w -DFELUCCA_BLE=1 -Ibuild/gen -Ifirmware/src -Itests -o "$OUT/bt_page_render" tests/bt_page_render.c -lm
     run "Bluetooth page: every state in every palette, FLAT and LINE, through the layout lint" "$OUT/bt_page_render" build/ui_bt
     if python3 -c "import PIL" 2>/dev/null; then python3 tests/ui_render.py build/ui_bt >/dev/null; fi

@@ -94,6 +94,7 @@
 #include "ble/ble_core.h"        /* the BLE unit's entry points (ble/ble.c, its own object) */
 static void bt_service(void);    /* core_ble_api.c: the BT stack's slice and the core's Bluetooth work (ed_service) */
 #include "bt_set.c"              /* MODE and the remembered device, in the settings */
+#include "smc.c"                 /* the SMC-Mixer DAW layout: decode, actions, LEDs, fader pickup */
 #include "bt_midi.c"             /* MIDI mode: in (the input ring, source 3) and out; SMC DAW mode: to smc.c */
 #include "bt_page.c"             /* the Bluetooth page (MENU > SYSTEM > BLUETOOTH, ui_menu.c ui.menu 4) */
 #endif
