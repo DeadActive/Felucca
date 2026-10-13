@@ -218,6 +218,39 @@ def ld_regions(script=None):
     return regs
 
 
+def core_object(flags, out):
+    """felucca.c -> out.o as the app's core is compiled (the main-loop functions built for size: tools/size_fns.py)"""
+    if os.environ.get("FELUCCA_SIZE") == "0":
+        tc("cc", *flags, "-c", FW / "src" / "felucca.c", "-o", out.with_suffix(".o"))
+        return
+    tc("cc", *flags, "-S", "-emit-llvm", "-Xclang", "-disable-llvm-optzns", "-c", FW / "src" / "felucca.c", "-o",
+       out.with_suffix(".ll"))
+    subprocess.run([sys.executable, SRC / "tools" / "size_fns.py", out.with_suffix(".ll"),
+                    out.with_name(out.name + "_size.ll")], check=True, stdout=subprocess.DEVNULL)
+    tc("cc", *[f for f in flags if not f.startswith(("-I", "-D", "-W"))], "-c", out.with_name(out.name + "_size.ll"),
+       "-o", out.with_suffix(".o"))
+
+
+def gate2c_listings(flags):
+    """gate 2c: the core compiled twice with the same flags, once as the plain build's (no FELUCCA_BLE) and once as
+    the Bluetooth build's, both without global merging (which small statics share a block depends on the whole
+    program: with it every function would address its data at other offsets), each linked with app.ld (the
+    Bluetooth one with empty BLE entry points) -> their listings. What differs between them in an update-path
+    function is what FELUCCA_BLE changes in that function's code, whatever inlining brought it there."""
+    g = OUT / "gate2c"
+    g.mkdir(exist_ok=True)
+    nomerge = ["-mllvm", "-enable-global-merge=false"]
+    out = {}
+    for tag, fl, extra in (("plain", [f for f in flags if f != "-DFELUCCA_BLE=1"], []),
+                           ("ble", flags, [OUT / "ble_stub.o"])):
+        core_object([*fl, *nomerge], g / tag)
+        tc("pi32v2/bin/ld", "-T", FW / "app.ld", OUT / "crt0.o", OUT / "fm1_vec.o", OUT / "fm1_isr.o",
+           g / f"{tag}.o", *extra, "-o", g / f"{tag}.elf")
+        out[tag] = tc("common/bin/objdump", "-d", g / f"{tag}.elf")
+        (g / f"{tag}.dis").write_text(out[tag])
+    return out["plain"], out["ble"]
+
+
 def build_app():
     flags = [*CFLAGS, "-Ifirmware/hal", "-Ifirmware/src", "-Ibuild/gen"]
     ble = is_ble()
@@ -327,6 +360,7 @@ def build_app():
            OUT / "felucca.o", OUT / "ble_stub.o", "-o", OUT / "felucca_ref.elf")
         ref_dis = tc("common/bin/objdump", "-d", OUT / "felucca_ref.elf")
         (OUT / "felucca_ref.dis").write_text(ref_dis)
+        ref_dis = (ref_dis, *gate2c_listings(flags))
     for sect in ("text.bin", "data.bin", "ramtext.bin"):
         (OUT / sect).unlink(missing_ok=True)
     *_, syms, dis, rt = tc_all(("common/bin/objcopy", "-O", "binary", "-j", ".text", elf, OUT / "text.bin"),
@@ -506,17 +540,23 @@ def main():
         import check_update_path as cup
         import check_ble_boot as cbb
         base = cup.last_release()
+        ref_dis, plain_nm, ble_nm = ref_dis
         ref = cup.selected(cup.functions(ref_dis))
         e2a = cup.source_errors(base)
         e2b = cup.compare(dis, cup.render(ref))
+        e2c, same2c, known2c = cup.compare_builds(plain_nm, ble_nm)
         e3 = cbb.reachable_starts(dis)
-        errors += [f"gate 2a: {e}" for e in e2a] + [f"gate 2b: {e}" for e in e2b]
+        errors += [f"gate 2a: {e}" for e in e2a] + [f"gate 2b: {e}" for e in e2b] + [f"gate 2c: {e}" for e in e2c]
         errors += [f"gate 3: BT start-up reachable at boot: {', '.join(e3)}"] if e3 else []
         notes.append("gate 1: the update loader = the pinned one (tools/ble_base.txt)")
         if not e2a:
             notes.append(f"gate 2a: the update path's sources = {base}'s")
         if not e2b:
             notes.append(f"gate 2b: the update path's machine code = the reference core's ({len(ref)} functions)")
+        if not e2c:
+            notes.append(f"gate 2c: the update path compiled for the Bluetooth build = the plain build's "
+                         f"({same2c} functions identical; differing as listed in check_update_path.py: "
+                         f"{', '.join(known2c) or 'none'})")
         if not e3:
             notes.append("gate 3: no BT start-up reachable at boot (only through ble_user_start)")
     hal_err = mmio_check()

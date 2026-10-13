@@ -44,9 +44,10 @@ says NO SAMPLE once; SLICE keeps BREAK and the user slots and has no PIANO sourc
 | the stack alone, the three sets left out | 531,376 | 50,188 | 67,612 | 352,640 |
 | + MIDI mode, the settings bytes | 532,008 | 49,556 | 67,756 | 352,640 |
 | + the Bluetooth page | 535,272 | 46,292 | 67,756 | 352,936 |
-| **+ the SMC-Mixer layout (the build as it is)** | **536,936** | **44,628** | **67,756** (5,972 spare, 4,096 kept) | **352,992** (15,648 spare, 8,192 kept) |
+| + the SMC-Mixer layout | 536,936 | 44,628 | 67,756 | 352,992 |
+| **after the review's fixes (the build as it is)** | **537,192** | **44,372** | **67,756** (5,972 spare, 4,096 kept) | **352,992** (15,648 spare, 8,192 kept) |
 
-The core's side costs 5,560 B of flash and 144 B of RAM; the page's and the layout's state is in the pool.
+The core's side costs 5,816 B of flash and 144 B of RAM; the page's and the layout's state is in the pool.
 
 Keeping one sustained set (FLUTE or SAX) would leave 18,620 B before the page and the SMC layout, about 13 KB after
 them: possible if the margin is given up. That is the user's call:

@@ -89,16 +89,25 @@ static void bt_state_text(char *o)                  /* the state line (40 B) */
     }
 }
 
-/* the scan list, BLE-MIDI devices first, each part in the BLE unit's order (by signal), the first 8 kept; the
- * remembered device's name noted when it is listed; the cursor kept on a row */
+/* the scan list as the page shows it. With the cursor off the device rows: the BLE unit's list, BLE-MIDI devices
+ * first, each part in the unit's order (by signal), the first 8 kept. With the cursor on a device row the rows do
+ * not move under it (a scan starting empties the unit's list, a signal changing re-sorts it, and a press would land
+ * on another device than the one aimed at): each row is brought up to date in place when its device is still
+ * listed, kept as it is when not, and devices seen since are added below. The remembered device's name is noted when
+ * it is listed; the cursor is kept on a row and its row in view. bt_page_draw calls it; the input acts on its rows */
+static int bt_same(const ble_ui_dev_t *a, const ble_ui_dev_t *b)
+{
+    return (a->type & 1u) == (b->type & 1u) && !memcmp(a->addr, b->addr, 6);
+}
 static void bt_list(void)
 {
     ble_ui_dev_t d;
     bt_set_t s;
-    uint32_t i, pass, n = ble_ui_devs();
+    uint32_t i, k, pass, n = ble_ui_devs(), hold = btp.sel >= BT_ROWS && btp.sel < BT_ROWS + btp.n;
     char t[24];
     bt_set_get(&s);
-    btp.n = 0;
+    if (!hold)
+        btp.n = 0;
     for (pass = 0; pass < 2u; pass++)
         for (i = 0; i < n && i < 16u; i++) {
             if (!ble_ui_dev(i, &d) || (d.midi != 0) != (pass == 0u))
@@ -106,7 +115,11 @@ static void bt_list(void)
             d.name[sizeof d.name - 1u] = 0;
             if (s.has && d.name[0] && (d.type & 1u) == s.type && !memcmp(d.addr, s.addr, 6))
                 str_cpy(btp.dname, d.name, sizeof btp.dname);
-            if (btp.n < BT_SHOW)
+            for (k = 0; hold && k < btp.n && !bt_same(&btp.dev[k], &d); k++)
+                ;
+            if (hold && k < btp.n)
+                btp.dev[k] = d;                     /* (in place: its signal, its name once it is known) */
+            else if (btp.n < BT_SHOW)
                 btp.dev[btp.n++] = d;
         }
     if (s.has && !btp.dname[0] && ble_ui_conn_name(t) && t[0]) {   /* (linked: the target) */
@@ -190,8 +203,7 @@ static void bt_page_input(uint32_t oct)             /* oct: ui_input.c oct_taps 
         enc_drop();
         return;
     }
-    bt_list();
-    rows = BT_ROWS + btp.n;
+    rows = BT_ROWS + btp.n;                         /* the rows as drawn (bt_list: they do not move under the cursor) */
     if ((s = panel_enc(EN_PRESET)) != 0)            /* one row per detent, wrapping (as the menu's rows) */
         btp.sel = (uint8_t)((btp.sel + (s > 0 ? 1u : rows - 1u)) % rows);
     for (s = 0, k = 0; k < 4u; k++)                 /* KNOB 1..4, any of them */
@@ -232,7 +244,6 @@ static void bt_page_input(uint32_t oct)             /* oct: ui_input.c oct_taps 
             bt_pick(&btp.dev[btp.sel - BT_ROWS]);
         break;
     }
-    bt_list();                                      /* (the cursor's row in view) */
     enc_drop();                                     /* swallow the rest while the page is up */
 }
 

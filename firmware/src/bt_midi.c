@@ -74,6 +74,18 @@ static int bt_midi_put(uint32_t pkt)
     return took;
 }
 
+/* two packets, both or neither (the release of a channel: the pedal up, then All Notes Off), in one interrupts-off
+ * region so nothing from USB / TRS lands between them; 0 = refused (no room beside TRS's 8 slots, or the ring is
+ * refusing input after an overflow) */
+static int bt_midi_put2(uint32_t a, uint32_t b)
+{
+    int took;
+    fm1_irq_off();
+    took = MQ - (mi_w - mi_r) > 9u && !midi_in_overflow && midi_enqueue(a, 3u) && midi_enqueue(b, 3u);
+    fm1_irq_on();
+    return took;
+}
+
 static void bt_midi_in(uint32_t pkt)
 {
     uint32_t cin, st;
@@ -118,10 +130,9 @@ static void bt_midi_frame(void)
     for (ch = 0; ch < 16u && bt_in.release; ch++) {
         if (!((bt_in.release >> ch) & 1u))
             continue;
-        if (MQ - (mi_w - mi_r) <= 10u)               /* both or neither (and TRS keeps its 8) */
-            break;
-        bt_midi_put(0x0Bu | (0xB0u | ch) << 8 | 64u << 16);            /* the pedal up */
-        bt_midi_put(0x0Bu | (0xB0u | ch) << 8 | 123u << 16);           /* All Notes Off */
+        if (!bt_midi_put2(0x0Bu | (0xB0u | ch) << 8 | 64u << 16,       /* the pedal up, All Notes Off */
+                          0x0Bu | (0xB0u | ch) << 8 | 123u << 16))
+            break;                                   /* still owed: the next pass */
         bt_in.release &= (uint16_t)~(1u << ch);
     }
     bt_in.out_on = (uint8_t)(bt_in.up && !bt_mode_now());

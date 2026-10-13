@@ -110,9 +110,22 @@ static void test_cursor(void)
     frame();
     row(5);
     ok("the devices found are rows after SCAN", btp.sel == 5u && btp.n == 2u);
-    bs.ndev = 0;                                     /* a new scan emptied the list */
+    bs.ndev = 0;                                     /* a new scan emptied the BLE unit's list */
     frame();
-    ok("the cursor comes back onto a row when the list shrinks", btp.sel <= 3u);
+    ok("with the cursor on a device row the rows stay as they are", btp.sel == 5u && btp.n == 2u);
+    turn(EN_PRESET, 1); frame();
+    ok("the cursor off the devices: the list is the BLE unit's again (empty), the cursor on a row",
+       btp.sel == 0u && btp.n == 0u);
+    dev(0, A1, 0, 1, -59, "SMC-Mixer");
+    frame();
+    row(4);
+    dev(1, A2, 1, 1, -30, "Stronger");               /* seen later, stronger: listed after the row under the cursor */
+    frame();
+    ok("with the cursor on a device row a device found later is added below, nothing moves",
+       btp.n == 2u && !memcmp(btp.dev[0].addr, A1, 6) && !memcmp(btp.dev[1].addr, A2, 6));
+    bs.dev[0].rssi = -90;
+    frame();
+    ok("... and a listed device's signal is brought up to date in place", btp.dev[0].rssi == -90);
 }
 
 static void test_on_off(void)
@@ -217,6 +230,32 @@ static void test_scan_pick_forget(void)
     row(4);
     press(B_OCTUP);
     ok("after a failed start a device row does nothing", !saved().has && !bs.targets);
+    /* the list changing under the cursor (a scan started and emptied it, or the signals re-sorted it) between what
+     * the screen shows and the press: the press takes the row as it was drawn */
+    fresh();
+    k1(1);
+    bs.state = BLE_ST_SCANNING;
+    dev(0, A1, 0, 1, -59, "SMC-Mixer");
+    dev(1, A2, 0, 1, -61, "Other MIDI");
+    frame();
+    row(4);                                          /* the cursor on SMC-Mixer, as drawn */
+    dev(0, A2, 0, 1, -50, "Other MIDI");             /* .. and now the other one is the stronger */
+    dev(1, A1, 0, 1, -59, "SMC-Mixer");
+    press(B_OCTUP);
+    s = saved();
+    ok("a pick takes the device its row showed, not the one that has moved there", s.has && !memcmp(s.addr, A1, 6));
+    fresh();
+    k1(1);
+    bs.state = BLE_ST_SCANNING;
+    dev(0, A1, 0, 1, -59, "SMC-Mixer");
+    frame();
+    row(4);
+    bs.ndev = 0;                                     /* a new scan cleared the list */
+    bs.scans = 0;
+    press(B_OCTUP);
+    s = saved();
+    ok("a pick on a row whose list has just been cleared still takes the device shown, and starts no scan",
+       s.has && !memcmp(s.addr, A1, 6) && !bs.scans);
 }
 
 static void test_close(void)

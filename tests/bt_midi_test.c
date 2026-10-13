@@ -312,6 +312,22 @@ static void test_link_drop(void)
     bt_midi_frame();
     events_block(256);
     ok("the link drops with the ring full: released once there is room", !gate_note(&trk[0], 60) && !bt_in.release);
+    /* the ring refusing (USB / TRS overflowed it: midi_enqueue takes nothing until the audio side has recovered):
+     * the release is still owed, never half sent and forgotten */
+    fresh(BT_MODE_MIDI);
+    link_to("Xkey Air");
+    bt_midi_in(msg(0x92, 67, 100));
+    events_block(256);
+    midi_in_overflow = 1;
+    conn_up = 0;
+    bt_link(0);
+    bt_midi_frame();
+    ok("the link drops while the ring refuses input: the release stays owed", bt_in.release == (1u << 2) && mi_w == mi_r);
+    midi_in_overflow = 0;
+    bt_midi_frame();
+    ok("... and is sent whole once the ring takes input: the pedal up, then All Notes Off",
+       !bt_in.release && mi_w - mi_r == 2u && midi_in_q[mi_r % MQ] == (0x0Bu | 0xB2u << 8 | 64u << 16) &&
+       midi_in_q[(mi_r + 1u) % MQ] == (0x0Bu | 0xB2u << 8 | 123u << 16));
 }
 
 int main(void)

@@ -237,3 +237,11 @@ file. The SMC mapping values come from the user's own `smc-seq` project. The BLE
 - The mixer's buttons and knobs do nothing while a dialog, NAME or UPDATE MODE is up; they work with the menu open.
 - The previous / next track buttons wrap.
 - `tools/build.py` tries a tool again when Docker answers "exec format error".
+- **Gate 2c** (after the final review): gate 2b links the same core object twice, so it cannot see what compiling
+  the core with `FELUCCA_BLE` changes in an update-path function. Every Bluetooth build now also compiles the core
+  as the plain build's and as the Bluetooth build's, both without global merging, and stops unless the update
+  path's functions are identical in the two, apart from those listed with their reasons and allowed callees in
+  `tools/check_update_path.py` (`fm1_main`, `fm1_fault_c`, `fm1_reboot`).
+- On the page, the device rows do not move while the cursor is on one (new devices are added below).
+- The release after a lost link is put into the ring as a pair, with interrupts off, and stays owed while the ring
+  refuses it.

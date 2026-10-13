@@ -21,7 +21,9 @@ PATTERNS = [r"^usb_", r"^ep[0-4]_", r"^e0_", r"^sie_", r"^sysex_byte$", r"^midi_
             # Felucca 1.6: the rest of usb.c, storage_hw.c, libc.c and main.c, and the HAL functions the update
             # path and the fault handlers run (every function of the update path's sources that the listing holds)
             r"^midi_out_event$", r"^audio_silence$", r"^mem(cpy|set|cmp)$", r"^fmt_", r"^str_", r"^hexs$",
-            r"^fm1_delay_ms$", r"^fm1__?p33_", r"^fm1_fault_c$", r"^fm1_fatal_common$", r"^fm1_reboot$"]
+            r"^fm1_delay_ms$", r"^fm1__?p33_", r"^fm1_fault_c$", r"^fm1_fatal_common$", r"^fm1_reboot$",
+            # .. and those the compiler inlines today (compared when it stops)
+            r"^get_desc$", r"^fm1_fault$", r"^felucca_init$", r"^boot_leds$", r"^rng$"]
 # (not cdc_task: the console's commands inline into it and change with them; the CDC transport is in usb_poll)
 LABEL = re.compile(r"^([A-Za-z_.$][\w.$]*):\s*$")
 INSN = re.compile(r"^\s*[0-9a-f]+:\s+(?:[0-9a-f]{2} )+\s*\t(.*)$")
@@ -51,8 +53,27 @@ def normalise(text, fn):
     return BARE.sub(bare, ANNOT.sub(one, COMMENT.sub("", text))).strip()
 
 
+ADDR = re.compile(r"^\s*([0-9a-f]+):\s+((?:[0-9a-f]{2} )+)\s*\t")
+RELCALL = re.compile(r"^call (-?\d+)$")
+
+
+def entries(text):
+    """address -> function, from each label's first instruction (for calls objdump left without a name)"""
+    at, pending = {}, None
+    for line in text.splitlines():
+        m = LABEL.match(line)
+        if m:
+            pending = None if m.group(1).startswith(".") else m.group(1)
+            continue
+        m = ADDR.match(line)
+        if m and pending:
+            at[int(m.group(1), 16)] = pending
+            pending = None
+    return at
+
+
 def functions(text):
-    out, name = {}, None
+    out, name, at = {}, None, entries(text)
     for line in text.splitlines():
         m = LABEL.match(line)
         if m and m.group(1).startswith("."):  # a local label (a jump table's .GJTIS…): inside the function
@@ -63,6 +84,12 @@ def functions(text):
             continue
         m = INSN.match(line)
         if m and name:
+            rel, a = RELCALL.match(m.group(1).strip()), ADDR.match(line)
+            if rel and a:           # `call N` with no annotation: the callee is at this instruction's end + N
+                callee = at.get(int(a.group(1), 16) + len(a.group(2).split()) + int(rel.group(1)))
+                if callee:
+                    out[name].append(f"call <{callee}>")
+                    continue
             out[name].append(normalise(m.group(1), name))
         elif line.startswith("| ") and name:      # a reference file's instruction line (render)
             out[name].append(line[2:].rstrip("\n"))
@@ -88,7 +115,75 @@ def compare(dis_text, ref_text):
     return errors
 
 
+# gate 2c: the update path's functions whose code FELUCCA_BLE changes, and why. Anything else that differs between
+# the plain compile and the Bluetooth compile of the core (tools/build.py gate2c_listings) stops the build.
+# For a listed function the instructions cannot be compared (the allocator renames registers around the change), so
+# its callees are: (why, callees only the Bluetooth compile may have, callees only the plain compile may have).
+KNOWN_2C = {
+    "fm1_main": ("the main loop inlines the console, which has the `ble` word (ble_console), and fm1_guard_lock_top "
+                 "is called instead of inlined (core_ble_api.c core_irq_attach uses it too)",
+                 {"ble_console", "fm1_guard_lock_top"}, set()),
+    "fm1_reboot": ("core_ble_api.c core_reboot is a second user of fm1_reboot, so it is a function of its own",
+                   {"fm1__p33_op"}, set()),
+    "fm1_fault_c": ("it calls fm1_reboot instead of inlining it (above)", {"fm1_reboot"}, {"fm1__p33_op"}),
+}
+
+
+def callees(body):
+    return set(re.findall(r"call <([\w.$]+)>", "\n".join(body or [])))
+
+
+def compare_builds(plain_text, ble_text):
+    """gate 2c -> (errors, how many functions are identical, the KNOWN_2C functions that differ)"""
+    a, b = selected(functions(plain_text)), selected(functions(ble_text))
+    errors, known, same = [], [], 0
+    for n in sorted(set(a) | set(b)):
+        if a.get(n) == b.get(n):
+            same += 1
+        elif n in KNOWN_2C:
+            _, more, fewer = KNOWN_2C[n]
+            new, gone = callees(b.get(n)) - callees(a.get(n)), callees(a.get(n)) - callees(b.get(n))
+            if new - more:
+                errors.append(f"{n} calls {', '.join(sorted(new - more))} in the Bluetooth compile only (not listed)")
+            if gone - fewer:
+                errors.append(f"{n} no longer calls {', '.join(sorted(gone - fewer))} in the Bluetooth compile")
+            known.append(n)
+        else:
+            how = "only in the Bluetooth compile" if n not in a else "only in the plain compile" if n not in b else \
+                "differs between the plain and the Bluetooth compile"
+            errors.append(f"{n} {how} (not listed in KNOWN_2C)")
+    errors += [f"{n} is listed in KNOWN_2C but is the same in both compiles (remove it)" for n in KNOWN_2C
+               if n in a and n in b and a[n] == b[n]]
+    return errors, same, known
+
+
 def selftest():
+    two = ("usb_poll:\n  2000000:    00 49    \tr0 = 1\n  2000002:    80 00    \trts\n"
+           "fm1_main:\n  2000010:    00 49    \tr0 = 1\n  2000012:    80 00    \trts\n")
+    real_known = dict(KNOWN_2C)
+    try:
+        KNOWN_2C.clear()
+        assert compare_builds(two, two) == ([], 2, []), "gate 2c: identical compiles flagged"
+        e, same, known = compare_builds(two, two.replace("usb_poll:\n  2000000:    00 49    \tr0 = 1", "usb_poll:\n  2000000:    00 49    \tr0 = 2"))
+        assert len(e) == 1 and "usb_poll" in e[0] and same == 1, "gate 2c: a changed update-path function not caught"
+        KNOWN_2C["fm1_main"] = ("test", {"ble_console"}, set())
+        changed = two.replace("fm1_main:\n  2000010:    00 49    \tr0 = 1", "fm1_main:\n  2000010:    00 49    \tr0 = 3")
+        assert compare_builds(two, changed) == ([], 1, ["fm1_main"]), "gate 2c: a listed function flagged"
+        ok = changed.replace("\tr0 = 3\n", "\tr0 = 3\n  2000011:    00 49    \tcall -4 <ble_console : 2000030 >\n")
+        assert compare_builds(two, ok) == ([], 1, ["fm1_main"]), "gate 2c: a listed function's listed new callee flagged"
+        bad = changed.replace("\tr0 = 3\n", "\tr0 = 3\n  2000011:    00 49    \tcall -4 <ble_user_start : 2000030 >\n")
+        e, _, _ = compare_builds(two, bad)
+        assert len(e) == 1 and "ble_user_start" in e[0], "gate 2c: a listed function's unlisted new callee not caught"
+        withcall = two.replace("fm1_main:\n  2000010:    00 49    \tr0 = 1\n", "fm1_main:\n  2000010:    00 49    \tr0 = 1\n  2000011:    00 49    \tcall -4 <ota_prog : 2000030 >\n")
+        e, _, _ = compare_builds(withcall, changed)
+        assert len(e) == 1 and "no longer calls ota_prog" in e[0], "gate 2c: a listed function's lost callee not caught"
+        e, _, _ = compare_builds(two, two)
+        assert len(e) == 1 and "remove it" in e[0], "gate 2c: a stale KNOWN_2C entry not caught"
+        e, _, _ = compare_builds(two, changed + "usb_new:\n  2000020:    80 00    \trts\n")
+        assert len(e) == 1 and "usb_new only in the Bluetooth compile" in e[0], "gate 2c: a new function not caught"
+    finally:
+        KNOWN_2C.clear()
+        KNOWN_2C.update(real_known)
     dis = ("usb_poll:\n  2000000:    00 49    \tr0 = 1\n  2000002:    80 00    \trts\n"
            "other:\n  2000010:    80 00    \trts\n")
     ref = render(selected(functions(dis)))
@@ -147,6 +242,14 @@ def selftest():
     assert compare(h1.replace("33848701", "33884012"), ref8) == [], "a moved unannotated address flagged"
     h2 = "usb_k:\n  2000000:    00 49    \tr1 = 4096\n"
     assert compare(h2.replace("4096", "4097"), render(selected(functions(h2)))), "a changed small constant not caught"
+    # a relative call objdump did not annotate: resolved by address, so the same callee at another distance compares
+    # equal and another callee does not (4 encoding bytes: the callee is at the instruction's end + N)
+    r1 = ("usb_a:\n  2000000:    00 49 00 00    \tcall 12\n  2000004:    80 00    \trts\n"
+          "fl_one:\n  2000010:    80 00    \trts\nfl_two:\n  2000020:    80 00    \trts\n")
+    assert functions(r1)["usb_a"][0] == "call <fl_one>", "an unannotated relative call not resolved"
+    r2 = r1.replace("2000010:", "2000018:").replace("call 12", "call 20")
+    assert compare(r2, render(selected(functions(r1)))) == [], "the same callee at another distance flagged"
+    assert compare(r1.replace("call 12", "call 28"), render(selected(functions(r1)))), "another callee not caught"
     real = globals()["git"]          # gate 2a's rule for added files, with a fake git
     try:
         globals()["git"] = lambda *a: "A\tfirmware/hal/fm1_ble_hal.h\n"

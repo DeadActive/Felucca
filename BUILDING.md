@@ -83,7 +83,8 @@ Felucca). It needs, besides the above:
 
 The build leaves out the built-in SAMPLE sets PIANO, FLUTE and SAX for the room (`tools/build.py` `BLE_SMP_DROP`;
 `FELUCCA_SMP_DROP=FLUTE,SAX` overrides it) and stops unless the image keeps 32 KB of the app slot free and every
-gate holds (the update loader, the update path, no Bluetooth at boot, RAM code: `docs/ble/BLUETOOTH.md`).
+gate holds (the update loader, the update path, no Bluetooth at boot, RAM code: `docs/ble/BLUETOOTH.md`). It
+compiles the core three times for those checks, so it takes about twice as long as the plain build.
 `BLE_MEASURE=1` links an image that does not fit, to measure it; it makes no package. The plain build is unchanged
 by all of this: `GATE5=1 sh tests/run_tests.sh` proves it is the same bytes without the Bluetooth files. Run the
 tests on a plain build (`./build.sh` first).
