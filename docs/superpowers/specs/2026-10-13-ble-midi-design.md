@@ -245,3 +245,9 @@ file. The SMC mapping values come from the user's own `smc-seq` project. The BLE
 - On the page, the device rows do not move while the cursor is on one (new devices are added below).
 - The release after a lost link is put into the ring as a pair, with interrupts off, and stays owed while the ring
   refuses it.
+- **AUTOSTART** (the user, 2026-10-15): a saved setting on the page (flags bit 3 of the settings bytes, default OFF).
+  ON: Bluetooth is turned on once per power-on, 3 s after the main loop first served it, as BLUETOOTH ON does; only
+  after a clean boot (main.c `boot_clean`: no crash, no WDT hang, no failed boot before this one), not while UPDATE
+  MODE is up. This loosens rule 5 by the user's choice; gate 3 allows `bt_page_auto` to reach `bt_page_on` only from
+  the main loop's Bluetooth service.
+- The plain build's equality with upstream holds for builds of the same day: ABOUT shows `__DATE__`.

@@ -16,8 +16,11 @@ START = {"ble_start", "btstack_init", "btctrler_task_init", "bt_ble_init", "bt_m
 ALLOWED = {"ble_user_start"}
 TRIGGERS = {"ble_console", "bt_page_on"}   # the only functions that may reference ALLOWED (the user's commands:
                                            # the console's `ble start`, the Bluetooth page's BLUETOOTH ON)
-CALLERS = {"bt_page_on": {"bt_page_input", "menu_input", "ui_input"}}   # a trigger in the core: only from the page's
-                                           # input (or the functions it is inlined into), never the service / boot
+CALLERS = {"bt_page_on": {"bt_page_input", "menu_input", "ui_input", "bt_page_auto"},
+           "bt_page_auto": {"bt_service", "ed_service", "fm1_main"}}
+# a trigger in the core, only from: the page's input (or the functions it is inlined into); AUTOSTART (bt_page_auto,
+# once after a clean boot, the user's setting) and that only from the main loop's Bluetooth service. Never the boot
+# itself, an ISR or anything else
 ROOTS = ("fm1_cstart", "fm1_fatal_common", "fm1_fault_c")
 LABEL = re.compile(r"^([A-Za-z_.$][\w.$]*):\s*$")
 REF = re.compile(r"<([A-Za-z_.$][\w.$]*)(?:\+[^:>]*)?\s*:\s*[0-9a-f]+\s*>", re.I)
@@ -79,6 +82,17 @@ def selftest():
             fn("bt_page_on", "call -4 <ble_user_start : 2000040 >") + fn("ble_user_start", "call -4 <ble_start : 2000048 >")
         assert reachable_starts(bad + fn("ble_start", "rts")) == [f"bt_page_on (from {hook})"], \
             f"the page's trigger called from {hook} not caught"
+    # AUTOSTART (bt_page.c bt_page_auto): the page's trigger from the main loop's Bluetooth service, never from the
+    # boot itself or an ISR
+    auto = boot + fn("ed_service", "call -4 <bt_service : 2000030 >") + fn("bt_service", "call -4 <bt_page_auto : 2000034 >") + \
+        fn("bt_page_auto", "call -4 <bt_page_on : 2000038 >") + fn("bt_page_on", "call -4 <ble_user_start : 2000040 >") + \
+        fn("ble_user_start", "call -4 <ble_start : 2000048 >")
+    assert reachable_starts(auto + fn("ble_start", "rts")) == [], "AUTOSTART from the main loop's service flagged"
+    for hook in ("felucca_init", "fm1_timer5_irq"):
+        bad = boot + fn(hook, "call -4 <bt_page_auto : 2000034 >") + fn("bt_page_auto", "call -4 <bt_page_on : 2000038 >") + \
+            fn("bt_page_on", "call -4 <ble_user_start : 2000040 >") + fn("ble_user_start", "call -4 <ble_start : 2000048 >")
+        assert reachable_starts(bad + fn("ble_start", "rts")) == [f"bt_page_auto (from {hook})"], \
+            f"AUTOSTART called from {hook} not caught"
     lng = boot + fn("ed_service", "r0 = 33554496 <ble_start : 2000040 >", "call r0") + fn("ble_start", "rts")
     assert reachable_starts(lng) == ["ble_start"], "a long call (address load) not caught"
     isr = fn("isr_timer5", "call -4 <fm1_timer5_irq : 2000050 >") + fn("fm1_timer5_irq",

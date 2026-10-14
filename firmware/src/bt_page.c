@@ -2,22 +2,23 @@
  * BLE MIDI: 2026 DEADACTIVE (after Hortator's bt_page.c) */
 /* FELUCCA_BLE (felucca.c includes it after ble/ble_core.h, bt_set.c and bt_midi.c; ui_menu.c declares its entry
  * points): the Bluetooth page, MENU > SYSTEM > BLUETOOTH, ui.menu BT_MENU. A state line (and the last error), then
- * the rows BLUETOOTH, MODE, DEVICE, SCAN and up to 8 devices found (BLE-MIDI ones first), three in view. As in the
+ * the rows BLUETOOTH, AUTOSTART, MODE, DEVICE, SCAN and up to 8 devices found (BLE-MIDI ones first), three in view. As in the
  * menu: PRESETS moves the cursor (it wraps), any of KNOB 1..4 changes the row, OCT+ acts on it, OCT- goes back to
  * the menu's rows, HOME closes the menu.
  * BLUETOOTH ON is the only call of ble_user_start in the core (gate 3: tools/check_ble_boot.py TRIGGERS has
- * bt_page_on); Bluetooth is off at every power-on and ON is not saved. MODE and the remembered device are saved at
- * once (bt_set.c). Main loop only. */
-#define BT_ROWS 4u                                  /* BLUETOOTH MODE DEVICE SCAN, then the devices */
+ * bt_page_on); Bluetooth is off at every power-on and ON is not saved, unless AUTOSTART is ON: then bt_page_auto
+ * turns it on once, BT_AUTO_MS after the main loop began, after a clean boot only. AUTOSTART, MODE and the remembered
+ * device are saved at once (bt_set.c). Main loop only. */
+#define BT_ROWS 5u                                  /* BLUETOOTH AUTOSTART MODE DEVICE SCAN, then the devices */
 #define BT_SHOW 8u                                  /* devices listed (the scan keeps 16) */
 #define BT_VIS 3u                                   /* device rows in view (the cursor scrolls them) */
 #define BT_SY 27                                    /* the state line's panel; the last error under it */
 #define BT_SH 20
 #define BT_EY 48
-#define BT_RY 67                                    /* the four rows, 18 px, 1 px apart */
-#define BT_RH 18
-#define BT_SPLIT 124                                /* the two bands meet in the gap above SCAN */
-#define BT_DY 150                                   /* the device rows, 17 px, 1 px apart */
+#define BT_RY 67                                    /* the five rows, 17 px, 1 px apart */
+#define BT_RH 17
+#define BT_SPLIT 121                                /* the two bands meet in the gap above DEVICE */
+#define BT_DY 164                                   /* the device rows, 17 px, 1 px apart */
 #define BT_DH 17
 static const char *const BT_MODE_N[3] = {"AUTO", "SMC DAW", "MIDI"};
 static struct {
@@ -155,6 +156,42 @@ __attribute__((noinline)) static void bt_page_on(void)
         ble_user_start();
 }
 
+/* AUTOSTART (core_ble_api.c bt_service, every main-loop pass): once per power-on, BT_AUTO_MS after the main loop
+ * first served Bluetooth, BLUETOOTH ON as from the page, when AUTOSTART is ON and the boot was clean (main.c
+ * boot_clean: no crash, no WDT hang and no failed boot before this one). So a Bluetooth start that crashes or hangs
+ * the FM-1 is not tried again on the next power-on: the way to UBOOT and the updater stays clear. Not while UPDATE
+ * MODE is up, nor later in that power-on. Gate 3 (tools/check_ble_boot.py) allows it only from the main loop's
+ * service */
+#define BT_AUTO_MS 3000u
+static struct { uint8_t armed, done; uint32_t t0; } bt_auto;
+static uint8_t boot_clean;                          /* main.c (included after this file): its tentative definition */
+__attribute__((noinline)) static void bt_page_auto(void)
+{
+    bt_set_t s;
+    if (bt_auto.done)
+        return;
+    if (!bt_auto.armed) {
+        bt_auto.armed = 1;
+        bt_auto.t0 = fm1_ms;
+        return;
+    }
+    if (ui.uboot) {
+        bt_auto.done = 1;
+        return;
+    }
+    if (fm1_ms - bt_auto.t0 < BT_AUTO_MS)
+        return;
+    bt_auto.done = 1;
+    bt_set_get(&s);
+    if (!s.autostart)
+        return;
+    if (!boot_clean) {
+        ui_message("BT AUTOSTART SKIPPED");          /* (after a crash, a hang or a failed boot) */
+        return;
+    }
+    bt_page_on();
+}
+
 static void bt_pick(const ble_ui_dev_t *d)          /* a device row, OCT+: remembered (saved) and connected */
 {
     bt_set_t s;
@@ -217,7 +254,15 @@ static void bt_page_input(uint32_t oct)             /* oct: ui_input.c oct_taps 
             ble_ui_want(0);
         }
         break;
-    case 1:                                         /* MODE: a knob steps and stops at the ends; OCT+ wraps */
+    case 1:                                         /* AUTOSTART: a knob right ON, left OFF; OCT+ toggles; saved */
+        bt_set_get(&set);
+        k = s > 0 ? 1u : s < 0 ? 0u : ok ? !set.autostart : set.autostart;
+        if (k != set.autostart) {
+            set.autostart = (uint8_t)k;
+            bt_set_put(&set);
+        }
+        break;
+    case 2:                                         /* MODE: a knob steps and stops at the ends; OCT+ wraps */
         bt_set_get(&set);
         k = s > 0 ? (set.mode < BT_MODE_MIDI ? set.mode + 1u : BT_MODE_MIDI)
           : s < 0 ? (set.mode ? set.mode - 1u : 0u) : ok ? (set.mode + 1u) % 3u : set.mode;
@@ -226,12 +271,12 @@ static void bt_page_input(uint32_t oct)             /* oct: ui_input.c oct_taps 
             bt_set_put(&set);
         }
         break;
-    case 2:                                         /* DEVICE: a knob left forgets it */
+    case 3:                                         /* DEVICE: a knob left forgets it */
         bt_set_get(&set);
         if (s < 0 && set.has)
             bt_forget();
         break;
-    case 3:                                         /* SCAN (BLUETOOTH ON only) */
+    case 4:                                         /* SCAN (BLUETOOTH ON only) */
         if (ok && st == BLE_ST_FAILED)
             ui_message("POWER OFF AND ON TO RETRY");
         else if (ok && !btp.on)
@@ -329,7 +374,7 @@ static void bt_page_draw(void)
         return;
     ui.menu_sig = sig;
     menu_head();
-    on = 1u | (btp.sel <= 2u ? 2u : 0u) | (btp.sel != 2u ? 4u : 0u);
+    on = 1u | (btp.sel <= 3u ? 2u : 0u) | (btp.sel != 3u ? 4u : 0u);   /* (VALUE: the four rows above SCAN; OK: not DEVICE) */
     for (pass = 0; pass < 2u; pass++) {
         int32_t top_y = pass ? BT_SPLIT : H_HEAD;
         cv_begin(240, pass ? 240u - BT_SPLIT : BT_SPLIT - H_HEAD, T_BG);
@@ -342,14 +387,15 @@ static void bt_page_draw(void)
             if (err[0])
                 cv_free_text(MR_LX, BT_EY, &AF_S, err, T_MID, T_BG, MR_VR - MR_LX);
         }
-        if (!ux.style)                              /* the four rows' panel, a part in each band */
-            cv_rrect(4, BT_RY - MP_PAD, 232, 4 * (BT_RH + 1) - 1 + 2 * MP_PAD, 8, T_SURF, T_BG);
+        if (!ux.style)                              /* the five rows' panel, a part in each band */
+            cv_rrect(4, BT_RY - MP_PAD, 232, (int32_t)BT_ROWS * (BT_RH + 1) - 1 + 2 * MP_PAD, 8, T_SURF, T_BG);
         if (!pass) {
             bt_row(0, "BLUETOOTH", btp.on ? "ON" : "OFF", 1);
-            bt_row(1, "MODE", BT_MODE_N[set.mode], 1);
-            bt_row(2, "DEVICE", dv, 1);
+            bt_row(1, "AUTOSTART", set.autostart ? "ON" : "OFF", 1);
+            bt_row(2, "MODE", BT_MODE_N[set.mode], 1);
         } else {
-            bt_row(3, "SCAN", "", btp.on);
+            bt_row(3, "DEVICE", dv, 1);
+            bt_row(4, "SCAN", "", btp.on);
             if (btp.n && !ux.style)
                 cv_rrect(4, BT_DY - MP_PAD, 232, (int32_t)(btp.n < BT_VIS ? btp.n : BT_VIS) * (BT_DH + 1) - 1 + 2 * MP_PAD,
                          8, T_SURF, T_BG);

@@ -25,6 +25,7 @@ acts on it, OCT- goes back to the menu, HOME closes the menu.
 | Row | A knob | OCT+ |
 | --- | --- | --- |
 | BLUETOOTH | right ON, left OFF | ON / OFF |
+| AUTOSTART | right ON, left OFF (saved) | ON / OFF |
 | MODE | AUTO, SMC DAW, MIDI (stops at the ends) | the next one (wraps) |
 | DEVICE | left: forget the remembered device (a link drops) | - |
 | SCAN | - | a 10 s scan (Bluetooth ON only) |
@@ -33,8 +34,13 @@ acts on it, OCT- goes back to the menu, HOME closes the menu.
 While the cursor is on a device, the rows do not move under it: devices found meanwhile are added below. Move the
 cursor up to SCAN or above to see the list in its order again.
 
-- **Bluetooth is off at every power-on.** ON starts it; it then stays started until power-off (OFF disconnects and
-  stops reconnecting). ON is not saved.
+- **Bluetooth is off at every power-on** unless AUTOSTART is ON. ON starts it; it then stays started until power-off
+  (OFF disconnects and stops reconnecting). ON itself is not saved.
+- **AUTOSTART ON** (default OFF): about 3 s after the FM-1 has started, Bluetooth turns on by itself, once, as ON on
+  the page does, and reconnects to the remembered device. It is skipped after a crash, a hang (watchdog reset) or a
+  failed start-up the power-on before (the screen says `BT AUTOSTART SKIPPED`), so a Bluetooth start that went wrong
+  is never tried again by itself and the way to UBOOT and the updater stays clear; turn it on from the page then.
+  Not while UPDATE MODE is up.
 - With a remembered device, ON reconnects to it when it is seen, and again after the link drops. A scan from the
   page pauses that while the page is open.
 - The state line: OFF, STARTING, IDLE, SCANNING n S, CONNECTING, CONNECTED + the device's name, FAILED + the reason
@@ -97,11 +103,13 @@ Every Bluetooth build stops unless:
    console's `ble` word, and `fm1_fault_c` / `fm1_reboot`, where the reboot is called instead of inlined). 2c
    compares both without the compiler's merging of small statics, which moves every function's data offsets; the
    image that ships is compiled with it, as the plain build is;
-3. no Bluetooth start-up is reachable at boot, only from the page's ON and the console's `ble start` (gate 3);
+3. no Bluetooth start-up is reachable at boot, only from the page's ON, AUTOSTART (and that only from the main
+   loop's Bluetooth service) and the console's `ble start` (gate 3);
 4. the radio library's RAM code reaches nothing in flash (gate 4).
 
 `GATE5=1 sh tests/run_tests.sh` also proves the plain build is the same bytes with every Bluetooth file deleted
-(gate 5). The gates are checks of the build, not of the device: the OCT- + OCT+ 5 s UBOOT key and the updater are
+(gate 5); the plain build is byte-identical to upstream's built the same day (ABOUT shows the build date). The
+gates are checks of the build, not of the device: the OCT- + OCT+ 5 s UBOOT key and the updater are
 expected to work with Bluetooth off or on, as they do in Hortator, and [DEVICE_STEPS.md](DEVICE_STEPS.md) steps 2,
 11 and 12 are where that is proved on this build. `tools/ble_base.txt` names the upstream release and its loader:
 after merging a later upstream release, put its tag and its loader's hash there.

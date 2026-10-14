@@ -70,6 +70,7 @@ void core_ble_link(int up)
 static void bt_service(void)
 {
     ble_service();
+    bt_page_auto();                             /* AUTOSTART: once, a few seconds after a clean boot (bt_page.c) */
     bt_midi_frame();                            /* MIDI mode: what the keys and the sequencer sent, to the device */
     smc_frame();                                /* the SMC-Mixer's LEDs and fader positions */
 }

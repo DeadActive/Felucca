@@ -103,6 +103,17 @@ static void test_settings(void)
         }
     ok("settings: the device (address, type) and MODE round-trip for every mode and both address types", same);
     memset(&s, 0, sizeof s);
+    memcpy(s.addr, A, 6);
+    s.mode = BT_MODE_SMC;
+    s.autostart = 1;
+    bt_set_put(&s);
+    bt_set_get(&g);
+    ok("settings: AUTOSTART round-trips (flags bit 3)", g.autostart && g.has && g.mode == BT_MODE_SMC && favorites.factory[13][30] == 0x09u);
+    favorites.factory[13][30] |= 0x10u;              /* a flag this firmware does not know */
+    favorites.factory[13][31] = bt_set_sum(&favorites.factory[13][24]);
+    bt_set_get(&g);
+    ok("settings: an unknown flag bit is no device, MODE AUTO, AUTOSTART OFF", !g.has && g.mode == BT_MODE_AUTO && !g.autostart);
+    memset(&s, 0, sizeof s);
     s.mode = BT_MODE_MIDI;
     bt_set_put(&s);
     bt_set_get(&g);

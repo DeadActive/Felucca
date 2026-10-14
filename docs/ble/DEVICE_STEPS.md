@@ -42,6 +42,9 @@ reboot: `fatal` 1 a library assert, 2 a library reset request, 3 a BT task's sta
    MIDI monitor shows the notes). Switch the device off while holding a note: `BT LOST`, the note stops.
 8. **Reconnect.** Switch the device off and on: it reconnects by itself within a few seconds. Power-cycle the FM-1,
    BLUETOOTH ON: it reconnects to the remembered device without a scan. DEVICE, a knob left: `NONE`, the link drops.
+8a. **AUTOSTART.** On the page, AUTOSTART ON (with a remembered device). Power off and on. Expected: about 3 s after
+    the start the state goes STARTING, IDLE and connects by itself. Then hold OCT- + OCT+ for 5 s: UBOOT still comes.
+    AUTOSTART OFF again if you prefer Bluetooth off at power-on.
 9. **Under load.** A pattern plays while connected with faders and knobs moving. Expected: no audible glitch;
    `ble` shows `audio_late 0`, `errs 0`, `out_drops 0`, `in_drops 0`. Copy the `ble` output (`loop last / max`,
    `longest BT task run`, `heap high`, each task's `stack free`, `irq_lowered 0`).
@@ -66,6 +69,7 @@ reboot: `fatal` 1 a library assert, 2 a library reset request, 3 a BT task's sta
 | 6 knobs, buttons | | | |
 | 7 MIDI mode | | | |
 | 8 reconnect | | | |
+| 8a autostart | | | |
 | 9 under load | | | |
 | 10 saving | | | |
 | 11 UBOOT, BT on | | | |

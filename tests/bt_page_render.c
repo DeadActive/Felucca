@@ -40,7 +40,7 @@ static void dev(uint32_t i, uint8_t a0, uint32_t type, int midi, int rssi, const
 }
 static void remember(uint8_t a0, uint32_t mode)
 {
-    bt_set_t s = {{a0, 0x12, 0x34, 0x56, 0xAB, 0xC4}, 0, (uint8_t)mode, 1};
+    bt_set_t s = {{a0, 0x12, 0x34, 0x56, 0xAB, 0xC4}, 0, (uint8_t)mode, 1, (uint8_t)(mode == BT_MODE_SMC)};   /* (SMC: AUTOSTART ON) */
     bt_set_put(&s);
 }
 static void bt_setup(int s)
@@ -58,10 +58,10 @@ static void bt_setup(int s)
     ui.menu_sel = MI_BT;
     switch (s) {
     case BS_OFF: break;
-    case BS_STARTING: btp.on = 1; bs.state = BLE_ST_STARTING; btp.sel = 1; break;
-    case BS_SCAN: btp.on = 1; bs.state = BLE_ST_SCANNING; bs.left = 10; btp.sel = 3; break;
+    case BS_STARTING: btp.on = 1; bs.state = BLE_ST_STARTING; btp.sel = 2; break;
+    case BS_SCAN: btp.on = 1; bs.state = BLE_ST_SCANNING; bs.left = 10; btp.sel = 4; break;
     case BS_SCAN_LIST:
-        btp.on = 1; bs.state = BLE_ST_SCANNING; bs.left = 7; btp.sel = 4;
+        btp.on = 1; bs.state = BLE_ST_SCANNING; bs.left = 7; btp.sel = 5;
         dev(0, 0x9A, 1, 0, -40, "");
         dev(1, 0x11, 0, 1, -59, "SMC-Mixer");
         dev(2, 0x22, 0, 1, -127, ODD);
@@ -80,7 +80,7 @@ static void bt_setup(int s)
         remember(0x11, BT_MODE_AUTO);
         break;
     case BS_CONNECTED:
-        btp.on = 1; bs.state = BLE_ST_RECEIVING; btp.sel = 2; conn_up = 1;
+        btp.on = 1; bs.state = BLE_ST_RECEIVING; btp.sel = 3; conn_up = 1;
         strcpy(conn_name, "SMC-Mixer");
         remember(0x11, BT_MODE_SMC);
         break;
@@ -92,7 +92,7 @@ static void bt_setup(int s)
         break;
     case BS_FAILED: bs.state = BLE_ST_FAILED; bs.err = "NO RF TRIM IN FLASH"; remember(0x11, BT_MODE_AUTO); break;
     case BS_ERROR:
-        btp.on = 1; bs.state = BLE_ST_IDLE; bs.err = "DISCONNECTED 0x08"; bs.code = 8; btp.sel = 3;
+        btp.on = 1; bs.state = BLE_ST_IDLE; bs.err = "DISCONNECTED 0x08"; bs.code = 8; btp.sel = 4;
         remember(0x11, BT_MODE_AUTO);
         break;
     case BS_REC: btp.on = 1; bs.state = BLE_ST_IDLE; song.rec = 1; break;   /* (the head: the REC mark beside BACK) */
@@ -141,7 +141,7 @@ int main(int argc, char **argv)
     al_flush();
     {   /* what the page must show: the state, the rows, a device's tag and signal (GREY's last screen is not kept:
          * draw one and look for the words among the boxes the lint saw) */
-        static const char *const WANT[] = {"SCANNING 7 S", "BLUETOOTH", "MODE", "DEVICE", "SCAN", "SMC-Mixer", "MIDI", "-59", "ON", "AUTO", "NONE"};
+        static const char *const WANT[] = {"SCANNING 7 S", "BLUETOOTH", "AUTOSTART", "MODE", "DEVICE", "SCAN", "SMC-Mixer", "MIDI", "-59", "ON", "AUTO", "NONE"};
         uint32_t i, j, miss = 0;
         bt_setup(BS_SCAN_LIST);
         pal(UI_GREY_INDEX);

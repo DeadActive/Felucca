@@ -101,24 +101,24 @@ static void test_cursor(void)
     ok("PRESETS moves the cursor a row", btp.sel == 1u);
     turn(EN_PRESET, -1); frame();
     turn(EN_PRESET, -1); frame();
-    ok("the cursor wraps past the first row to the last (SCAN, no devices)", btp.sel == 3u);
+    ok("the cursor wraps past the first row to the last (SCAN, no devices)", btp.sel == 4u);
     turn(EN_PRESET, 1); frame();
     ok("the cursor wraps past the last row to the first", btp.sel == 0u);
     bs.state = BLE_ST_IDLE;
     dev(0, A1, 0, 1, -59, "SMC-Mixer");
     dev(1, A2, 1, 0, -80, "");
     frame();
-    row(5);
-    ok("the devices found are rows after SCAN", btp.sel == 5u && btp.n == 2u);
+    row(6);
+    ok("the devices found are rows after SCAN", btp.sel == 6u && btp.n == 2u);
     bs.ndev = 0;                                     /* a new scan emptied the BLE unit's list */
     frame();
-    ok("with the cursor on a device row the rows stay as they are", btp.sel == 5u && btp.n == 2u);
+    ok("with the cursor on a device row the rows stay as they are", btp.sel == 6u && btp.n == 2u);
     turn(EN_PRESET, 1); frame();
     ok("the cursor off the devices: the list is the BLE unit's again (empty), the cursor on a row",
        btp.sel == 0u && btp.n == 0u);
     dev(0, A1, 0, 1, -59, "SMC-Mixer");
     frame();
-    row(4);
+    row(5);
     dev(1, A2, 1, 1, -30, "Stronger");               /* seen later, stronger: listed after the row under the cursor */
     frame();
     ok("with the cursor on a device row a device found later is added below, nothing moves",
@@ -167,7 +167,7 @@ static void test_on_off(void)
 static void test_mode(void)
 {
     fresh();
-    row(1);
+    row(2);
     k1(1);
     ok("MODE, a knob right: SMC DAW, saved", saved().mode == BT_MODE_SMC);
     k1(1);
@@ -189,13 +189,13 @@ static void test_scan_pick_forget(void)
 {
     bt_set_t s;
     fresh();
-    row(3);
+    row(4);
     press(B_OCTUP);
     ok("SCAN while Bluetooth is OFF: no scan", !bs.scans);
     row(0);
     k1(1);
     bs.state = BLE_ST_IDLE;
-    row(3);
+    row(4);
     press(B_OCTUP);
     ok("SCAN, OCT+: a scan", bs.scans == 1u);
     bs.state = BLE_ST_SCANNING;
@@ -204,19 +204,19 @@ static void test_scan_pick_forget(void)
     dev(1, A1, 0, 1, -59, "SMC-Mixer");
     frame();
     ok("the list: BLE-MIDI devices first", btp.n == 2u && !memcmp(btp.dev[0].addr, A1, 6) && !memcmp(btp.dev[1].addr, A2, 6));
-    row(4);
+    row(5);
     bs.targets = 0;
     press(B_OCTUP);
     s = saved();
     ok("a device row, OCT+: remembered (saved), the target, reconnecting wanted",
        s.has && !memcmp(s.addr, A1, 6) && s.type == 0u && bs.targets == 1u && !memcmp(bs.taddr, A1, 6) && bs.want == 1);
     ok("picking a device keeps MODE", s.mode == BT_MODE_AUTO);
-    row(5);
+    row(6);
     press(B_OCTUP);
     s = saved();
     ok("another device row: it replaces the remembered one (a random address keeps its type)",
        !memcmp(s.addr, A2, 6) && s.type == 1u && bs.ttype == 1u);
-    row(2);
+    row(3);
     k1(1);
     ok("DEVICE, a knob right: nothing", saved().has);
     bs.targets = 0;
@@ -227,7 +227,7 @@ static void test_scan_pick_forget(void)
     bs.state = BLE_ST_FAILED;
     dev(0, A1, 0, 1, -59, "SMC-Mixer");
     frame();
-    row(4);
+    row(5);
     press(B_OCTUP);
     ok("after a failed start a device row does nothing", !saved().has && !bs.targets);
     /* the list changing under the cursor (a scan started and emptied it, or the signals re-sorted it) between what
@@ -238,7 +238,7 @@ static void test_scan_pick_forget(void)
     dev(0, A1, 0, 1, -59, "SMC-Mixer");
     dev(1, A2, 0, 1, -61, "Other MIDI");
     frame();
-    row(4);                                          /* the cursor on SMC-Mixer, as drawn */
+    row(5);                                          /* the cursor on SMC-Mixer, as drawn */
     dev(0, A2, 0, 1, -50, "Other MIDI");             /* .. and now the other one is the stronger */
     dev(1, A1, 0, 1, -59, "SMC-Mixer");
     press(B_OCTUP);
@@ -249,13 +249,111 @@ static void test_scan_pick_forget(void)
     bs.state = BLE_ST_SCANNING;
     dev(0, A1, 0, 1, -59, "SMC-Mixer");
     frame();
-    row(4);
+    row(5);
     bs.ndev = 0;                                     /* a new scan cleared the list */
     bs.scans = 0;
     press(B_OCTUP);
     s = saved();
     ok("a pick on a row whose list has just been cleared still takes the device shown, and starts no scan",
        s.has && !memcmp(s.addr, A1, 6) && !bs.scans);
+}
+
+static void test_autostart_row(void)
+{
+    bt_set_t s;
+    fresh();
+    row(1);
+    ok("the second row is AUTOSTART, OFF by default", btp.sel == 1u && !saved().autostart);
+    k1(1);
+    s = saved();
+    ok("AUTOSTART, a knob right: ON, saved; Bluetooth itself not started by it", s.autostart && !bs.starts && !btp.on);
+    k1(1);
+    ok("ON again stays ON", saved().autostart);
+    k1(-1);
+    ok("a knob left: OFF, saved", !saved().autostart);
+    press(B_OCTUP);
+    ok("OCT+ toggles: ON", saved().autostart);
+    row(2);
+    press(B_OCTUP);
+    s = saved();
+    ok("AUTOSTART is kept when MODE changes", s.autostart && s.mode == BT_MODE_SMC);
+    {
+        bt_set_t d = {{0}, 0, BT_MODE_MIDI, 1, 1};
+        memcpy(d.addr, A1, 6);
+        bt_set_put(&d);
+        s = saved();
+        ok("AUTOSTART round-trips with a device, MODE and the address type", s.autostart && s.has && s.mode == BT_MODE_MIDI &&
+           !memcmp(s.addr, A1, 6));
+        d.autostart = 0;
+        bt_set_put(&d);
+        ok("... and OFF too", !saved().autostart && saved().has);
+    }
+}
+
+/* the autostart: once per power-on, BT_AUTO_MS after the main loop first served Bluetooth, only with AUTOSTART ON and
+ * after a clean boot (main.c boot_clean: no crash, no WDT hang, no failed boot before this one) */
+static void autostart_power_on(int on, int clean)
+{
+    bt_set_t s = {{0}, 0, BT_MODE_AUTO, 1, (uint8_t)on};
+    ui_power_on();
+    memset(&bs, 0, sizeof bs);
+    memset(&btp, 0, sizeof btp);
+    memset(&bt_auto, 0, sizeof bt_auto);
+    memcpy(s.addr, A2, 6);
+    s.type = 1;
+    bt_set_put(&s);
+    boot_clean = (uint8_t)clean;
+    fm1_ms = 1234;
+}
+static void test_autostart(void)
+{
+    uint32_t i;
+    autostart_power_on(1, 1);
+    bt_page_auto();
+    fm1_ms += BT_AUTO_MS - 16u;
+    bt_page_auto();
+    ok("autostart: not before BT_AUTO_MS of the main loop", !bs.starts && !btp.on);
+    fm1_ms += 16u;
+    bt_page_auto();
+    ok("autostart: then Bluetooth starts as BLUETOOTH ON does (started, wanted, the remembered device the target)",
+       bs.starts == 1u && btp.on && bs.want == 1 && bs.targets == 1u && !memcmp(bs.taddr, A2, 6) && bs.ttype == 1u);
+    bs.state = BLE_ST_IDLE;
+    btp.on = 0;                                      /* the user turns it OFF on the page */
+    ble_ui_want(0);
+    for (i = 0; i < 100u; i++) {
+        fm1_ms += 1000u;
+        bt_page_auto();
+    }
+    ok("autostart: once per power-on (OFF on the page stays OFF)", bs.starts == 1u && !btp.on && bs.want == 0);
+    autostart_power_on(0, 1);
+    for (i = 0; i < 20u; i++) {
+        bt_page_auto();
+        fm1_ms += 1000u;
+    }
+    ok("AUTOSTART OFF: nothing starts", !bs.starts && !btp.on && !bs.wants);
+    autostart_power_on(1, 0);
+    for (i = 0; i < 20u; i++) {
+        bt_page_auto();
+        fm1_ms += 1000u;
+    }
+    ok("after a crash, a hang or a failed boot: no autostart (the way to UBOOT and the updater stays clear)",
+       !bs.starts && !btp.on && !bs.wants);
+    autostart_power_on(1, 1);
+    ui.uboot = 1;                                    /* UPDATE MODE on the screen */
+    for (i = 0; i < 20u; i++) {
+        bt_page_auto();
+        fm1_ms += 1000u;
+    }
+    ok("autostart: not while UPDATE MODE is up", !bs.starts);
+    ui.uboot = 0;
+    bt_page_auto();
+    ok("... and not later in that power-on either", !bs.starts);
+    autostart_power_on(1, 1);
+    fm1_ms = 0xFFFFFFFFu - 1000u;                    /* the ms counter wrapping meanwhile */
+    bt_page_auto();
+    fm1_ms += BT_AUTO_MS;
+    bt_page_auto();
+    ok("autostart: the delay survives the ms counter wrapping", bs.starts == 1u);
 }
 
 static void test_close(void)
@@ -333,6 +431,8 @@ int main(void)
     test_on_off();
     test_mode();
     test_scan_pick_forget();
+    test_autostart_row();
+    test_autostart();
     test_close();
     test_state_text();
     printf(fails ? "bt_page: %d FAILED\n" : "bt_page: all checks passed\n", fails);
