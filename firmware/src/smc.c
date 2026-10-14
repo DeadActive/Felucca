@@ -5,8 +5,8 @@
  * In (bt_midi.c, SMC DAW mode):
  *   faders = pitch bend on channels 1..8: 1..4 the tracks' LEVEL, 5..8 the tracks' REV send, with pickup (9, the
  *     master: nothing);
- *   knobs 1..4 = CC 16..19 on channel 1, sign-magnitude clicks: the selected track's four HOME parameters (5..8:
- *     nothing);
+ *   knobs 1..4 = CC 16..19 on channel 1, sign-magnitude clicks: the selected track's four HOME parameters; knobs
+ *     5..8 = CC 20..23: MIDI LEARN's (smc_learnable: learned, a click steps the learned parameter; else nothing);
  *   buttons = notes on channel 1, presses only: REC 0x00.. (the track selected, then REC as on the FM-1), SOLO 0x08..,
  *     MUTE 0x10.., SELECT 0x18.. for strips 1..4 (5..8: nothing); STOP 0x5D, PLAY 0x5E, REC 0x5F; BANK / CHANNEL < >
  *     0x2E 0x30 / 0x2F 0x31 the previous / next track.
@@ -103,6 +103,52 @@ static void smc_knob(uint32_t k, int32_t delta)
     ui_say(m, unit ? unit : "");
 }
 
+/* the CC value (0..127) at which midi_control.c midi_cc_set gives parameter value v: its inverse, rounded */
+static uint32_t smc_cc_at(const param_desc_t *d, int32_t v)
+{
+    int32_t r = d->max - d->min;
+    return (uint32_t)clamp(((v - d->min) * 127 + r / 2) / r, 0, 127);
+}
+
+/* knob k (4..7: CC 20..23) turned delta clicks: MIDI LEARN's. Learned, a click steps the parameter it is learned to
+ * by one value from where it is (no jump when the FM-1 changed it meanwhile), as the CC value midi_learned sets it
+ * from; while MIDI LEARN waits for a CC, it hears this one (midi_learned: ml_arm); else nothing. Main loop: the
+ * values as the FM-1's knobs set them, automation recorded (midi_cc_set) */
+static void smc_learnable(uint32_t k, int32_t delta)
+{
+    uint32_t cc = 16u + k, i, e = 0, id = P_COUNT, c0, c1, n;
+    track_t *t;
+    const param_desc_t *d;
+    char m[24], val[12];
+    const char *unit = "";
+    for (i = 0; i < ML_N && id >= P_COUNT; i++)
+        if (((e = ml_get(i)) >> 9) && (e & 127u) == cc)
+            id = ml_id(e >> 9);
+    if (ml_arm || id >= P_COUNT) {
+        (void)midi_learned(cc, 64u);                  /* (learning: heard; not learned: nothing) */
+        return;
+    }
+    t = &trk[(e >> 7) & 3u];
+    d = param_desc_of(eng_idx(t->eng_req), id);
+    if (d->max <= d->min)
+        return;
+    c0 = smc_cc_at(d, t->p[id]);
+    c1 = smc_cc_at(d, param_turn(d, t->p[id], delta));
+    if (c1 == c0)                                     /* (a range wider than 127: a value step is less than a CC step) */
+        c1 = (uint32_t)clamp((int32_t)c0 + delta, 0, 127);
+    (void)midi_learned(cc, c1);
+    param_format(d, t->p[id], val, &unit);
+    m[0] = 'T';
+    m[1] = (char)('1' + ((e >> 7) & 3u));
+    m[2] = ' ';
+    str_cpy(m + 3, d->label ? d->label : "", sizeof m - 3u);
+    n = str_len(m);
+    str_cpy(m + n, " ", sizeof m - n);
+    n = str_len(m);
+    str_cpy(m + n, val, sizeof m - n);
+    ui_say(m, unit ? unit : "");
+}
+
 /* a button pressed (note n): the rows REC SOLO MUTE SELECT 0x00 0x08 0x10 0x18 + strip, the transport, track < > */
 static void smc_button(uint32_t n)
 {
@@ -160,9 +206,14 @@ static void smc_in(uint32_t pkt)
         if (ch < SMC_FADERS && !ui.uboot)
             smc_fader(ch, (d2 << 7 | d1) >> 7);
         break;
-    case 0xBu:                                        /* knobs 1..4 (5..8: nothing); bit 6 = counter-clockwise */
-        if (!busy && !ch && d1 >= 16u && d1 <= 19u && (d2 & 0x3Fu))
-            smc_knob(d1 - 16u, d2 & 0x40u ? -(int32_t)(d2 & 0x3Fu) : (int32_t)(d2 & 0x3Fu));
+    case 0xBu:                                        /* knobs 1..4, 5..8 MIDI LEARN's; bit 6 = counter-clockwise */
+        if (!busy && !ch && d1 >= 16u && d1 <= 23u && (d2 & 0x3Fu)) {
+            int32_t clicks = d2 & 0x40u ? -(int32_t)(d2 & 0x3Fu) : (int32_t)(d2 & 0x3Fu);
+            if (d1 <= 19u)
+                smc_knob(d1 - 16u, clicks);
+            else
+                smc_learnable(d1 - 16u, clicks);
+        }
         break;
     case 0x9u:                                        /* velocity 0 = a release */
         if (!busy && !ch && d2)

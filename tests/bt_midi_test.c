@@ -292,6 +292,26 @@ static void test_out(void)
     ok("MIDI out: the key up sends its note-off", nsent == 2u && (sent[1][0] & 0xF0u) == 0x80u && sent[1][1] == sent[0][1]);
 }
 
+static void test_learn(void)
+{
+    fresh(BT_MODE_MIDI);
+    link_to("Xkey Air");
+    ui.ml.on = 1;                                    /* MIDI LEARN on (GLO + D4) */
+    ml_knob(&trk[0], P_REV);                         /* a knob turned: REV of track 1 picked */
+    bt_midi_in(msg(0xB0, 21, 90));                   /* the BLE controller's CC 21 */
+    events_block(256);
+    ml_poll();
+    ok("MIDI LEARN: a CC from the BLE device is learned", ml_cc_of(0, P_REV) == 22u);
+    ui.ml.on = 0;
+    bt_midi_in(msg(0xB0, 21, 0));
+    events_block(256);
+    ok("MIDI LEARN: then that CC from the BLE device sets the parameter (0)", trk[0].p[P_REV] == TP[P_REV].min);
+    bt_midi_in(msg(0xB0, 21, 127));
+    events_block(256);
+    ok("... (127)", trk[0].p[P_REV] == TP[P_REV].max);
+    ml_clear_all();
+}
+
 static void test_link_drop(void)
 {
     fresh(BT_MODE_MIDI);
@@ -349,6 +369,7 @@ int main(void)
     test_clock();
     test_mode();
     test_out();
+    test_learn();
     test_link_drop();
     printf(fails ? "bt_midi: %d FAILED\n" : "bt_midi: all checks passed\n", fails);
     return fails != 0;

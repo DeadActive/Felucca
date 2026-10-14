@@ -35,7 +35,9 @@ reboot: `fatal` 1 a library assert, 2 a library reset request, 3 a BT task's sta
 6. **Knobs and buttons.** Knob 1-4: the selected track's HOME parameters, the screen says `T1 … value`. MUTE n,
    SOLO n (the others go silent, their MUTE stays), SELECT n, BANK / CHANNEL left and right, PLAY, STOP. REC n
    while stopped: the track is selected and armed and the transport starts; play keys, stop: the notes are
-   recorded. The LEDs follow each of these, and changes made on the FM-1 too.
+   recorded. The LEDs follow each of these, and changes made on the FM-1 too. MIDI LEARN: GLO + D4, turn the FM-1's
+   knob for a parameter (REV on MIXER, say), turn mixer knob 5: the screen says `CC20 -> ...`; leave LEARN; knob 5 now
+   moves that parameter a step a click.
 7. **MIDI mode.** MODE `MIDI` (or connect a BLE-MIDI keyboard with MODE `AUTO`). Expected: its notes play the
    tracks by channel; pitch bend and sustain work; MIDI LEARN (GLO + D4) learns one of its CCs. GLO > CLOCK > CLK
    `BLE` with a device that sends clock: Start / Stop / tempo follow it. The FM-1's keys reach the device (a BLE

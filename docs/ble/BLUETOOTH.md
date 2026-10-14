@@ -52,7 +52,7 @@ cursor up to SCAN or above to see the list in its order again.
 ## MODE
 
 - **MIDI:** the device is a third MIDI input beside USB and TRS: notes by channel (MENU > MIDI > MIDI IN), pitch
-  bend, sustain, CCs, the modulation matrix's sources, MIDI LEARN. GLO > CLOCK > CLK has a fourth source, **BLE**:
+  bend, sustain, CCs, the modulation matrix's sources, MIDI LEARN (GLO + D4, turn a knob, move the controller's CC). GLO > CLOCK > CLK has a fourth source, **BLE**:
   the device's Start / Stop / clock run the transport. The FM-1's keys (on the track's channel) and the mod wheel
   (SELECT as MODW) are sent to the device too. No clock is sent to it. When the link drops, the notes and the pedal
   the device held are released.
@@ -69,7 +69,7 @@ A project saved with CLK BLE opens in the plain build with CLK TRS (its last sou
 | Fader 5-8 | track 1-4 REV (the reverb send) |
 | Master fader | nothing |
 | Knob 1-4 | the selected track's four HOME parameters, a step a click |
-| Knob 5-8 | nothing |
+| Knob 5-8 | MIDI LEARN's: learned to a parameter, a click steps it by one value from where it is; not learned, nothing |
 | MUTE 1-4 | mute / unmute the track |
 | SOLO 1-4 | solo / unsolo the track (the others are silenced; their MUTE is untouched) |
 | REC 1-4 | select the track and press REC for it (armed while stopped: the transport starts, as on the FM-1) |
@@ -83,6 +83,10 @@ A project saved with CLK BLE opens in the plain build with CLK TRS (its last sou
 - **Fader pickup:** a fader does nothing until it comes within 2 of the value or passes it; the mixer blinks its LED
   until then. A value changed on the FM-1 (a knob, a load, automation) releases its fader again.
 - A fader or knob moved while its track records is recorded as automation, as the FM-1's own knobs are.
+- **MIDI LEARN with the mixer:** GLO + D4, turn the FM-1's knob for the parameter, then turn mixer knob 5, 6, 7 or 8:
+  it is learned (CC 20-23). The mixer's knobs send clicks, not positions, so a learned one moves its parameter on from
+  wherever it is. Knobs 1-4, the faders and the buttons stay the layout's. In MIDI mode any controller's CC is
+  learned as from USB.
 - Solo ends when the mixer disconnects or MODE leaves SMC DAW.
 - While a dialog, NAME or UPDATE MODE is on the screen, the mixer's buttons and knobs do nothing.
 

@@ -189,12 +189,64 @@ static void test_knobs(void)
     {
         track_t before = trk[1];
         for (k = 20; k < 24u; k++)
-            smc_in(cc(k, 1));
+            smc_in(cc(k, 1));                        /* (knobs 5..8, nothing learned) */
         smc_in(cc(7, 100));
         smc_in(0x0Bu | 0xB1u << 8 | 16u << 16 | 1u << 24);   /* CC 16 on channel 2 */
-        ok("knobs 5..8, other CCs and other channels do nothing", !memcmp(before.p, trk[1].p, sizeof before.p));
+        ok("knobs 5..8 with nothing learned, other CCs and other channels do nothing", !memcmp(before.p, trk[1].p, sizeof before.p));
     }
     ok("the other tracks' parameters are untouched", !memcmp(other.p, trk[0].p, sizeof other.p));
+}
+
+static void test_learn(void)
+{
+    int16_t v;
+    uint32_t i;
+    fresh();
+    ml_clear_all();
+    ui.ml.on = 1;
+    ml_knob(&trk[2], P_REV);                         /* MIDI LEARN: REV of track 3 picked */
+    smc_in(cc(20, 1));                               /* knob 5 turned a click */
+    ml_poll();
+    ok("SMC: knob 5 teaches MIDI LEARN its CC (20)", ml_cc_of(2, P_REV) == 21u);
+    ok("... and the click itself changes nothing while it was learning", trk[2].p[P_REV] == 20);
+    ui.ml.on = 0;
+    v = trk[2].p[P_REV];
+    smc_in(cc(20, 1));
+    ok("SMC: knob 5, learned: a click steps its parameter by one value, from where it is", trk[2].p[P_REV] == v + 1);
+    smc_in(cc(20, 3));
+    ok("three clicks: three values", trk[2].p[P_REV] == v + 4);
+    smc_in(cc(20, 0x42));
+    ok("counter-clockwise: down", trk[2].p[P_REV] == v + 2);
+    trk[2].p[P_REV] = 90;                            /* changed on the FM-1: the knob goes on from there, no jump */
+    smc_in(cc(20, 1));
+    ok("a value changed elsewhere: the knob goes on from it", trk[2].p[P_REV] == 91);
+    for (i = 0; i < 30u; i++)
+        smc_in(cc(20, 0x3F));
+    ok("a learned knob stops at the parameter's maximum", trk[2].p[P_REV] == TP[P_REV].max);
+    ok("the other tracks are untouched", trk[1].p[P_REV] == 70 && trk[3].p[P_REV] == 20);
+    /* a two-valued parameter: a click is a step, not 1/127 of the range */
+    ui.ml.on = 1;
+    ml_knob(&trk[0], P_MUTE);
+    smc_in(cc(23, 1));
+    ml_poll();
+    ui.ml.on = 0;
+    smc_in(cc(23, 1));
+    ok("SMC: knob 8 learned to MUTE: a click right mutes", trk[0].p[P_MUTE] == 1);
+    smc_in(cc(23, 0x41));
+    ok("... a click left unmutes", trk[0].p[P_MUTE] == 0);
+    /* a learned CC from the mixer's knob 1..4 is not taken from the layout: they stay the HOME parameters */
+    ui.ml.on = 1;
+    ml_knob(&trk[0], P_PAN);
+    smc_in(cc(16, 1));
+    ml_poll();
+    ui.ml.on = 0;
+    ok("SMC: knobs 1..4 are the layout's, MIDI LEARN does not take them", ml_cc_of(0, P_PAN) == 0u);
+    ui.confirm = 1;
+    v = trk[2].p[P_REV];
+    smc_in(cc(20, 0x41));
+    ok("a learned knob waits while a dialog is open", trk[2].p[P_REV] == v);
+    ui.confirm = 0;
+    ml_clear_all();
 }
 
 static void test_buttons(void)
@@ -408,6 +460,7 @@ int main(void)
     test_decode_faders();
     test_pickup();
     test_knobs();
+    test_learn();
     test_buttons();
     test_leds();
     test_solo_sound();

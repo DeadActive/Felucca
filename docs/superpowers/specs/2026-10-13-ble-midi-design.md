@@ -251,3 +251,8 @@ file. The SMC mapping values come from the user's own `smc-seq` project. The BLE
   MODE is up. This loosens rule 5 by the user's choice; gate 3 allows `bt_page_auto` to reach `bt_page_on` only from
   the main loop's Bluetooth service.
 - The plain build's equality with upstream holds for builds of the same day: ABOUT shows `__DATE__`.
+- **MIDI LEARN with BLE** (the user, 2026-10-15): in MIDI mode a BLE controller's CCs reach MIDI LEARN as USB's do
+  (tested). In SMC DAW mode the mixer's knobs 5-8 (CC 20-23, relative clicks) are MIDI LEARN's: while it waits they
+  teach it their CC; learned, a click steps the learned parameter by one value from its current value (as the CC
+  value `midi_learned` maps back to it), so nothing jumps; not learned, nothing. Knobs 1-4, faders and buttons stay
+  the layout's.
