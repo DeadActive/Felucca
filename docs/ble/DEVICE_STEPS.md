@@ -39,7 +39,7 @@ reboot: `fatal` 1 a library assert, 2 a library reset request, 3 a BT task's sta
    knob for a parameter (REV on MIXER, say), turn mixer knob 5: the screen says `CC20 -> ...`; leave LEARN; knob 5 now
    moves that parameter a step a click.
 7. **MIDI mode.** MODE `MIDI` (or connect a BLE-MIDI keyboard with MODE `AUTO`). Expected: its notes play the
-   tracks by channel; pitch bend and sustain work; MIDI LEARN (GLO + D4) learns one of its CCs. GLO > CLOCK > CLK
+   tracks by channel; pitch bend and sustain work; MIDI LEARN (GLO + D4) learns one of its CCs. CLOCK page (tap HOME twice) > CLK
    `BLE` with a device that sends clock: Start / Stop / tempo follow it. The FM-1's keys reach the device (a BLE
    MIDI monitor shows the notes). Switch the device off while holding a note: `BT LOST`, the note stops.
 8. **Reconnect.** Switch the device off and on: it reconnects by itself within a few seconds. Power-cycle the FM-1,

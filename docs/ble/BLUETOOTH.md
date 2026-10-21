@@ -78,7 +78,7 @@ first, then switches.
 ## MODE
 
 - **MIDI:** the device is a third MIDI input beside USB and TRS: notes by channel (MENU > MIDI > MIDI IN), pitch
-  bend, sustain, CCs, the modulation matrix's sources, MIDI LEARN (GLO + D4, turn a knob, move the controller's CC). GLO > CLOCK > CLK has a fourth source, **BLE**:
+  bend, sustain, CCs, the modulation matrix's sources, MIDI LEARN (GLO + D4, turn a knob, move the controller's CC). The CLOCK page's CLK (tap HOME twice from HOME: MIXER, then CLOCK; KNOB 3) has a fourth source, **BLE**:
   the device's Start / Stop / clock run the transport. The FM-1's keys (on the track's channel) and the mod wheel
   (SELECT as MODW) are sent to the device too. No clock is sent to it. When the link drops, the notes and the pedal
   the device held are released.
