@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * BLE MIDI: 2026 DEADACTIVE (after Hortator's bt_midi.c) */
+ * BLE MIDI: 2026 DEADACTIVE (after Hortator's bt_midi.c)
+ * FM-Link: 2026 DEADACTIVE */
 /* FELUCCA_BLE (felucca.c includes it after the UI, ble/ble_core.h and bt_set.c): the core's side of Bluetooth MIDI.
  * In: each USB-MIDI packet the BLE unit received goes to the SMC-Mixer layout (SMC DAW mode, smc.c) or, in MIDI mode,
  *   through the USB filter into the MIDI input ring as source 3 (seq.c events_block: ordinary MIDI from there: notes
@@ -12,6 +13,8 @@
  *   device (another FM-1 with CLK BLE, a computer): Start on PLAY (and on GLO + PLAY from the top), 24 clock pulses a
  *   beat counted from the audio's own samples (so they never drift from its steps), Stop on STOP. A unit following a
  *   clock itself (CLK USB / TRS / BLE) sends none: no loop. bt_clock_block, from seq.c events_block (the audio ISR).
+ * FM-LINK mode: no MIDI either way (received packets dropped, nothing sent, no clock out): the link carries FM-Link
+ *   only (bt_fml.c runs in every mode).
  * The link down: what the device held is released (CC 64 = 0 and CC 123 on each channel it played), as a pulled cable
  *   would otherwise leave its notes sounding. */
 #define BT_MIDI_C 1
@@ -37,6 +40,12 @@ static uint32_t bt_mode_now(void)
         return s.mode == BT_MODE_SMC;
     return bt_in.smc;
 }
+static int bt_link_only(void)                        /* MODE FM-LINK: no MIDI either way */
+{
+    bt_set_t s;
+    bt_set_get(&s);
+    return s.mode == BT_MODE_LINK;
+}
 
 /* core_ble_link: the link up (the connected device's name read once: an auto scan waits up to 500 ms for the
  * target's name, ble_auto_step) / down */
@@ -45,7 +54,8 @@ static void bt_link(int up)
     char n[24];
     bt_in.up = (uint8_t)(up != 0);
     bt_in.smc = (uint8_t)(up && ble_ui_conn_name(n) && n[0] == 'S' && n[1] == 'M' && n[2] == 'C');
-    bt_in.out_on = (uint8_t)(up && !bt_mode_now());  /* (at once: bt_midi_frame follows MODE from then on) */
+    bt_in.out_on = (uint8_t)(up && !bt_mode_now() && !bt_link_only());   /* (at once: bt_midi_frame follows MODE from
+                                                                           * then on) */
     if (!up) {
         bt_in.release |= bt_in.held;                 /* (bt_midi_frame: into the ring when it has room) */
         bt_in.held = 0;
@@ -93,6 +103,8 @@ static int bt_midi_put2(uint32_t a, uint32_t b)
 static void bt_midi_in(uint32_t pkt)
 {
     uint32_t cin, st;
+    if (bt_link_only())
+        return;                                      /* FM-LINK: MIDI from the device ignored */
     if (bt_mode_now()) {
         smc_in(pkt);
         return;
@@ -171,7 +183,7 @@ static void bt_midi_frame(void)
             break;                                   /* still owed: the next pass */
         bt_in.release &= (uint16_t)~(1u << ch);
     }
-    bt_in.out_on = (uint8_t)(bt_in.up && !bt_mode_now());
+    bt_in.out_on = (uint8_t)(bt_in.up && !bt_mode_now() && !bt_link_only());
     while (bt_out_r != bt_out_w && ble_midi_room()) {
         uint32_t pkt = bt_out_q[bt_out_r % BT_OUT_Q], cin = pkt & 15u;
         uint8_t m[3] = {(uint8_t)(pkt >> 8), (uint8_t)(pkt >> 16), (uint8_t)(pkt >> 24)};

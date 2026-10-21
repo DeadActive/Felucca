@@ -106,8 +106,9 @@ static void bt_setup(int s)
         dev(0, 0x11, 0, 1, -59, "SMC-Mixer");      /* (a list the device role does not show) */
         break;
     }
-    case BS_DEV_HOST: {                              /* ROLE DEVICE: a host connected (its address as the name) */
-        bt_set_t d = {{0}, 0, BT_MODE_MIDI, 0, 0, 1};
+    case BS_DEV_HOST: {                              /* ROLE DEVICE: a host connected (its address as the name), MODE
+                                                      * FM-LINK (the longest value) under the cursor */
+        bt_set_t d = {{0}, 0, BT_MODE_LINK, 0, 0, 1};
         bt_set_put(&d);
         btp.on = 1; bs.state = BLE_ST_RECEIVING; btp.sel = 3; conn_up = 1;
         strcpy(conn_name, "5A:3C:91:0E:77:C2");

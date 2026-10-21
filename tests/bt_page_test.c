@@ -173,12 +173,21 @@ static void test_mode(void)
     k1(1);
     ok("MODE, a knob right: SMC DAW, saved", saved().mode == BT_MODE_SMC);
     k1(1);
+    ok("MODE: MIDI", saved().mode == BT_MODE_MIDI);
     k1(1);
-    ok("MODE stops at MIDI", saved().mode == BT_MODE_MIDI);
+    k1(1);
+    ok("MODE stops at FM-LINK", saved().mode == BT_MODE_LINK);
+    {
+        bt_set_t g;
+        bt_set_get(&g);
+        ok("FM-LINK is kept in the settings (MODE 3)", g.mode == BT_MODE_LINK);
+    }
+    k1(-1);
     k1(-1);
     k1(-1);
     k1(-1);
     ok("MODE stops at AUTO", saved().mode == BT_MODE_AUTO);
+    press(B_OCTUP);
     press(B_OCTUP);
     press(B_OCTUP);
     press(B_OCTUP);

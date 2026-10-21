@@ -34,7 +34,7 @@ acts on it, OCT- goes back to the menu, HOME closes the menu.
 | BLUETOOTH | right ON, left OFF | ON / OFF |
 | AUTOSTART | right ON, left OFF (saved) | ON / OFF |
 | ROLE | right DEVICE, left HOST (saved) | HOST / DEVICE |
-| MODE | AUTO, SMC DAW, MIDI (stops at the ends) | the next one (wraps) |
+| MODE | AUTO, SMC DAW, MIDI, FM-LINK (stops at the ends) | the next one (wraps) |
 | DEVICE | left: forget the remembered device (a link drops) | - |
 | SCAN | - | a 10 s scan (Bluetooth ON only) |
 | a device found (BLE-MIDI ones first; up to 8, three in view) | - | remember it and connect to it |
@@ -114,8 +114,9 @@ FM-1s.
 5. If the link drops, the follower plays on at the last BPM; when it comes back it pulls back into time (or, if it
    drifted more than 50 ms, rejoins on the next bar). CLK LINK with no FM-Link peer plays as INT.
 
-The leader still sends MIDI clock in MIDI mode (for a computer or a CLK BLE follower); the CLK LINK follower ignores
-it and sends none. Only clock and transport travel for now, not notes.
+FM-Link works in every MODE. In MIDI mode the leader also sends MIDI clock (for a computer or a CLK BLE follower; the
+CLK LINK follower ignores it) and each FM-1's keys play the other; MODE **FM-LINK** on both keeps the link to FM-Link
+alone. Only clock and transport travel for now, not notes.
 
 ## MODE
 
@@ -126,6 +127,8 @@ it and sends none. Only clock and transport travel for now, not notes.
   Start on PLAY, 24 pulses a beat, Stop on STOP (below). When the link drops, the notes and the pedal
   the device held are released.
 - **SMC DAW:** the M-VAVE SMC-Mixer in its DAW (Mackie Control) mode, below.
+- **FM-LINK:** the link carries FM-Link only (below): no notes, no CCs, no clock either way; what the other end sends
+  as MIDI is ignored. For two FM-1s that should share time and transport but not each other's keys.
 - **AUTO** (default): SMC DAW when the connected device's name starts with `SMC`, else MIDI.
 
 A project saved with CLK BLE opens in the plain build with CLK TRS (its last source): set CLK to INT there.

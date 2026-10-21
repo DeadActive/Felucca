@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * BLE MIDI: 2026 DEADACTIVE */
+ * BLE MIDI: 2026 DEADACTIVE
+ * FM-Link: 2026 DEADACTIVE */
 /* FELUCCA_BLE: what the Bluetooth page keeps over power-off, in the settings record (settings_persist.c: persist_t,
  * its magic and size unchanged): MODE and the remembered device in favorites.factory[13][24..31],
  *   [24..29] the device's address, [30] bits 0-1 MODE, bit 2 the address type (0 public, 1 random), bit 3
@@ -10,7 +11,7 @@
  * device, MODE AUTO. The plain build never reads them and keeps them as saved, as every byte of that table it does
  * not use. (persist_t's own fields cannot hold them: lowcut is read % 3, zoom and bold are tagged values.)
  * Main loop only. */
-enum { BT_MODE_AUTO, BT_MODE_SMC, BT_MODE_MIDI };
+enum { BT_MODE_AUTO, BT_MODE_SMC, BT_MODE_MIDI, BT_MODE_LINK };   /* LINK: FM-Link only, no MIDI either way */
 typedef struct { uint8_t addr[6], type, mode, has, autostart, role; } bt_set_t;   /* has: a device is remembered;
                                                                                    * role: 1 DEVICE */
 #define bt_set_bytes (&favorites.factory[13][24])
@@ -28,7 +29,7 @@ static void bt_set_get(bt_set_t *s)
     const uint8_t *b = bt_set_bytes;
     uint32_t i;
     memset(s, 0, sizeof *s);
-    if (b[7] != bt_set_sum(b) || (b[6] & 3u) > BT_MODE_MIDI || (b[6] & ~31u))
+    if (b[7] != bt_set_sum(b) || (b[6] & ~31u))
         return;
     for (i = 0; i < 6u; i++) {
         s->addr[i] = b[i];
@@ -47,7 +48,7 @@ static void bt_set_put(const bt_set_t *s)
     uint32_t i;
     for (i = 0; i < 6u; i++)
         b[i] = s->addr[i];
-    b[6] = (uint8_t)((s->mode <= BT_MODE_MIDI ? s->mode : BT_MODE_AUTO) | (s->type ? 4u : 0u) | (s->autostart ? 8u : 0u) |
+    b[6] = (uint8_t)((s->mode <= BT_MODE_LINK ? s->mode : BT_MODE_AUTO) | (s->type ? 4u : 0u) | (s->autostart ? 8u : 0u) |
                      (s->role ? 16u : 0u));
     b[7] = bt_set_sum(b);
     settings_save();

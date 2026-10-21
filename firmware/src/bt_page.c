@@ -22,7 +22,7 @@
 #define BT_SPLIT 121                                /* the two bands meet in the gap above DEVICE */
 #define BT_DY 182                                   /* the device rows, 17 px, 1 px apart */
 #define BT_DH 17
-static const char *const BT_MODE_N[3] = {"AUTO", "SMC DAW", "MIDI"};
+static const char *const BT_MODE_N[4] = {"AUTO", "SMC DAW", "MIDI", "FM-LINK"};
 static uint32_t bt_role(void) { bt_set_t s; bt_set_get(&s); return s.role; }   /* 1: ROLE DEVICE */
 static uint32_t bt_rows(void) { return bt_role() ? BT_DEV_ROWS : BT_ROWS; }   /* the rows above the devices */
 static struct {
@@ -286,8 +286,8 @@ static void bt_page_input(uint32_t oct)             /* oct: ui_input.c oct_taps 
         break;
     case 3:                                         /* MODE: a knob steps and stops at the ends; OCT+ wraps */
         bt_set_get(&set);
-        k = s > 0 ? (set.mode < BT_MODE_MIDI ? set.mode + 1u : BT_MODE_MIDI)
-          : s < 0 ? (set.mode ? set.mode - 1u : 0u) : ok ? (set.mode + 1u) % 3u : set.mode;
+        k = s > 0 ? (set.mode < BT_MODE_LINK ? set.mode + 1u : BT_MODE_LINK)
+          : s < 0 ? (set.mode ? set.mode - 1u : 0u) : ok ? (set.mode + 1u) % 4u : set.mode;
         if (k != set.mode) {
             set.mode = (uint8_t)k;
             bt_set_put(&set);

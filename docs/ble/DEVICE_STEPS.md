@@ -62,7 +62,8 @@ reboot: `fatal` 1 a library assert, 2 a library reset request, 3 a BT task's sta
     both start together (about 80 ms after the press); by ear the same 16ths on both, no flamming, for several minutes;
     turn A's BPM: B follows. PLAY on B: `FOLLOWING LINK`, nothing else. STOP on A stops both. With A playing, switch B
     off and on and link again: B starts on A's next bar. Copy `fml` and `ble` from both (`fm-link peer`, `in`, `out`,
-    `lost`). Report whether it sounds tighter than 8c.
+    `lost`). Report whether it sounds tighter than 8c. Then MODE `FM-LINK` on both: still in time, but A's keys no
+    longer play B (and B's not A).
 9. **Under load.** A pattern plays while connected with faders and knobs moving. Expected: no audible glitch;
    `ble` shows `audio_late 0`, `errs 0`, `out_drops 0`, `in_drops 0`. Copy the `ble` output (`loop last / max`,
    `longest BT task run`, `heap high`, each task's `stack free`, `irq_lowered 0`).

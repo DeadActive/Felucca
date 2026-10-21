@@ -92,7 +92,7 @@ static void test_settings(void)
     memset(&favorites, 0, sizeof favorites);
     bt_set_get(&g);
     ok("settings: an older record (all zero) is no device, MODE AUTO", !g.has && g.mode == BT_MODE_AUTO);
-    for (m = 0; m < 3u; m++)
+    for (m = 0; m < 4u; m++)
         for (t = 0; t < 2u; t++) {
             memset(&s, 0, sizeof s);
             memcpy(s.addr, A, 6);
@@ -242,6 +242,43 @@ static void test_mode(void)
     bt_link(0);
     fresh(BT_MODE_AUTO);
     ok("the link down: AUTO is MIDI again", !bt_mode_now());
+}
+
+/* MODE FM-LINK: the link carries FM-Link only: no MIDI in, no MIDI out, no clock out */
+static void test_link_only(void)
+{
+    uint32_t i;
+    fresh(BT_MODE_LINK);
+    link_to("Felucca FM-1");
+    bt_midi_in(msg(0x90, 60, 100));
+    bt_midi_in(msg(0xB0, 64, 127));
+    bt_midi_in(0x0Fu | 0xFAu << 8);
+    ok("FM-LINK: MIDI from the device is ignored (nothing in the ring, not counted as a drop)",
+       mi_w == mi_r && !bt_in.drops && !bt_in.held);
+    room = 64;
+    bt_midi_out_isr(msg(0x90, 60, 100));
+    bt_midi_frame();
+    ok("FM-LINK: the keys are not sent", !nsent && !bt_in.out_on);
+    song.g[G_CLOCK] = 0;
+    transport_req = 1;                               /* PLAY on CLK INT: no MIDI clock out */
+    for (i = 0; i < 40u; i++) {
+        events_block(256);
+        bt_midi_frame();
+    }
+    ok("FM-LINK: PLAY on CLK INT sends no Start and no clock", song.playing && !nsent);
+    transport_req = 2;
+    events_block(256);
+    bt_midi_frame();
+    ok("... nor Stop", !song.playing && !nsent);
+    {
+        bt_set_t s;
+        bt_set_get(&s);
+        s.mode = BT_MODE_MIDI;                       /* MODE back to MIDI while linked: MIDI again */
+        bt_set_put(&s);
+    }
+    bt_midi_frame();
+    bt_midi_in(msg(0x90, 60, 100));
+    ok("MODE MIDI again: MIDI in and out again", mi_w - mi_r == 1u && bt_in.out_on);
 }
 
 static void test_out(void)
@@ -481,6 +518,7 @@ int main(void)
     test_clock();
     test_mode();
     test_out();
+    test_link_only();
     test_clock_out();
     test_two_units();
     test_learn();
