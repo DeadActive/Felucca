@@ -26,10 +26,16 @@ the leader's tempo and keeps its beat position on the leader's.
 - Each unit's time is its TIMER4 tick count (24 MHz, the crystal that also clocks the audio: one sample is exactly
   544 ticks, `audio.c DAC_TICKS`). A block of 32 samples is stamped with the tick at which it will be heard
   (`t0 + (HALF_FRAMES + b) * DAC_TICKS`, as `audio.c` already computes for the keys' latency).
-- **Offset:** the follower sends PING (its tick) four times a second; the leader answers PONG (that tick back, and its
-  own tick when the PING came). Round trip `rtt = t1 - t0`, offset `leader - follower = t_leader - (t0 + t1) / 2`. Of
-  the last 8 answers the one with the shortest round trip gives the offset (its error is at most half that round
-  trip's asymmetry); the window of 2 s follows the crystals' slow drift (≤ 50 ppm: 12 µs a quarter second).
+- **Offset, one way at a time** (amended while building: the simulation showed a round trip's halves are not equal
+  over Bluetooth: a packet waits 0..15 ms for the next connection event, a reply most of one, a ~7 ms bias): the
+  follower sends PING (its tick t0) and the leader TIME (its tick as it sends), each every 100..150 ms (random, so
+  they are written at every phase of the connection interval; a reply is not: it is written just after the event
+  that brought its question, the second bias the simulation showed). The leader answers each PING with PONG (t0, its
+  tick when the PING came). Samples: `up = t_leader_rx - t0 = offset + delay up`, `down = t_leader_tx -
+  t_follower_rx = offset - delay down`. Of the last 48 each way (about 6 s), the smallest `up` and the largest `down`
+  are the packets that waited least; their mean is the estimate, and the offset in use follows it by 1/8 at each
+  sample (no jump when the fastest packet leaves the window). Chosen by a sweep over 8 random links: worst cases
+  0.94 ms at the start, 1.3 ms over 3 minutes, a BPM change, a lost link (`tests/fmlink_test.c`).
 
 ## 4. The timeline
 
@@ -39,8 +45,9 @@ sequencer advanced (`seq_n` samples at the BPM in force: samples a beat `= FS * 
 | Message | Bytes | |
 | --- | --- | --- |
 | HELLO | `'H' version role` | every 500 ms; role 1 leader, 2 follower; the peer is an FM-Link FM-1 while one came in the last 2 s |
-| PING | `'P' n t0[4]` | follower, every 250 ms |
-| PONG | `'Q' n t0[4] t_leader[4]` | leader, at once |
+| PING | `'P' n t0[4]` | follower, every 100..150 ms |
+| PONG | `'Q' n t0[4] t_leader_rx[4]` | leader, at once |
+| TIME | `'T' t_leader_tx[4]` | leader, every 100..150 ms |
 | STATE | `'S' n flags bpm t_ref[4] beats_ref[4]` | leader: on PLAY / STOP / a BPM change, and every second. flags bit 0 playing, bit 1 a fresh start (beats_ref 0 at t_ref) |
 
 All little endian, at most 14 bytes: one BLE packet each.

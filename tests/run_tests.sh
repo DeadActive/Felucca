@@ -508,6 +508,8 @@ run "BLE scan table" "$OUT/ble_scan_test"
 run "BLE central state machine, reconnecting, UUID match, monitor text" "$OUT/ble_central_test"
 run "BLE stored RF calibration (config store)" "$OUT/ble_vm_test"
 run "BLE device role: the GATT table (BLE-MIDI service, characteristic, CCCD), advertising data, scan response" "$OUT/ble_gatt_test"
+$CC -o "$OUT/fmlink_test" tests/fmlink_test.c
+run "FM-Link: two FM-1s over a simulated Bluetooth link (bursts, delays, loss, crystals apart): start, 3 min, BPM, join, STOP" "$OUT/fmlink_test"
 run "BLE OS layer (host back end)" "$OUT/ble_os_test"
 run "BLE fault path: records and reboots, never waits on interrupts" python3 tests/ble/check_ble_fatal.py
 run "gate 2 tool self-test (update path: machine code, sources)" python3 tools/check_update_path.py --selftest
