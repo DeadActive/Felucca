@@ -74,8 +74,9 @@ static void test_menu_row(void)
                 at = n;
             n++;
         }
-    ok("MENU > SYSTEM has seven rows, BLUETOOTH the fifth, before INFO",
-       n == 7u && at == 4u && MI_BT + 1u == MI_INFO && str_eq(MI_NAME[MI_BT], "BLUETOOTH") && n <= MTAB_ROWS);
+    ok("MENU > SYSTEM has BLUETOOTH right after CALIBRATION, before INFO, within the tab's rows",
+       MI_BT == MI_PANEL + 1u && MI_BT + 1u == MI_INFO && at == n - 3u && str_eq(MI_NAME[MI_BT], "BLUETOOTH") &&
+       MI_TAB[MI_BT] == MTAB_SYSTEM && n <= MTAB_ROWS);
     ok("BLUETOOTH is an action row (no value), as INFO and ABOUT", !menu_valued(MI_BT) && MI_BT >= MI_VALUES);
     fresh();
     ok("OCT+ on the row opens the page", ui.menu == BT_MENU && btp.sel == 0u);

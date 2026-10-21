@@ -1,6 +1,6 @@
 # Bluetooth MIDI on Felucca (the Bluetooth build)
 
-BLE MIDI: 2026 DEADACTIVE. From Hortator 0.16.0 (<https://github.com/DeadActive/hortator>), on Felucca 1.6.
+BLE MIDI: 2026 DEADACTIVE. From Hortator 0.16.0 (<https://github.com/DeadActive/hortator>), on Felucca 1.6.1.
 
 `FELUCCA_BLE=1 ./build.sh` builds Felucca with a Bluetooth LE MIDI **host**: the FM-1 scans for a BLE-MIDI device (a
 keyboard, a controller, an M-VAVE SMC-Mixer), connects to it, and takes and sends MIDI over it. The package is
@@ -12,6 +12,12 @@ installs over the other.
 
 ## What the Bluetooth build gives up
 
+**The second core.** It is built on one core (`FELUCCA_CPU2=0`, upstream's own one-core variant): MENU > SYSTEM has
+no 2ND CORE row. The second core's stacks and mailbox and the Bluetooth stack do not both fit the RAM with the 4 KB
+the build keeps spare, and the two have never run together on an FM-1. 2ND CORE is an opt-in beta (OFF by default) in
+the plain build, which keeps it.
+
+**Built-in samples.**
 The built-in SAMPLE sets PIANO, FLUTE and SAX (104 KB) are left out to make room ([FIT.md](FIT.md)). The SAMPLE
 and GRAIN engines play the user slots USR1-3; a sound that selects a built-in set plays a sine at the note's pitch and
 the screen says NO SAMPLE once; SLICE keeps BREAK and the user slots and has no PIANO source. Everything else is

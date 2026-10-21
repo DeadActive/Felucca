@@ -23,7 +23,9 @@ PATTERNS = [r"^usb_", r"^ep[0-4]_", r"^e0_", r"^sie_", r"^sysex_byte$", r"^midi_
             r"^midi_out_event$", r"^audio_silence$", r"^mem(cpy|set|cmp)$", r"^fmt_", r"^str_", r"^hexs$",
             r"^fm1_delay_ms$", r"^fm1__?p33_", r"^fm1_fault_c$", r"^fm1_fatal_common$", r"^fm1_reboot$",
             # .. and those the compiler inlines today (compared when it stops)
-            r"^get_desc$", r"^fm1_fault$", r"^felucca_init$", r"^boot_leds$", r"^rng$"]
+            r"^get_desc$", r"^fm1_fault$", r"^felucca_init$", r"^boot_leds$", r"^rng$",
+            # 1.6.1: the second core's start, hold and wait (main.c, the reset and UBOOT paths hold it first)
+            r"^fm1_cpu1_", r"^fm1_c1_"]
 # (not cdc_task: the console's commands inline into it and change with them; the CDC transport is in usb_poll)
 LABEL = re.compile(r"^([A-Za-z_.$][\w.$]*):\s*$")
 INSN = re.compile(r"^\s*[0-9a-f]+:\s+(?:[0-9a-f]{2} )+\s*\t(.*)$")

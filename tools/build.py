@@ -566,8 +566,14 @@ def main():
     ble = is_ble()
     measure = ble and os.environ.get("BLE_MEASURE") == "1"
     if ble:                         # a gated Bluetooth build is packaged under its own name
+        global CPU2
         name = name.replace("felucca", "felucca-ble", 1)
         os.environ.setdefault("FELUCCA_SMP_DROP", BLE_SMP_DROP)   # (tools/gen_samples.py: the flash room)
+        # one core (1.6.1's FELUCCA_CPU2=0, upstream's own variant): the second core's stacks and mailbox (5.7 KB of
+        # .data + .bss) and the BT stack's do not both fit the RAM with its 4 KB kept spare, and the two are untried
+        # together on the FM-1. 2ND CORE is an opt-in beta, OFF by default; the plain build keeps it
+        os.environ.setdefault("FELUCCA_CPU2", "0")
+        CPU2 = os.environ["FELUCCA_CPU2"] != "0"
     fm1pkg_make.SDK = a.sdk
     for rel, sha in SDK_SHA256.items():          # fail early without the SDK
         if hashlib.sha256(fm1pkg_make.sdk_file(rel)).hexdigest() != sha:

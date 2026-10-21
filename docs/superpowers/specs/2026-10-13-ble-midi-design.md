@@ -256,3 +256,7 @@ file. The SMC mapping values come from the user's own `smc-seq` project. The BLE
   teach it their CC; learned, a click steps the learned parameter by one value from its current value (as the CC
   value `midi_learned` maps back to it), so nothing jumps; not learned, nothing. Knobs 1-4, faders and buttons stay
   the layout's.
+- **Upstream 1.6.1** (merged 2026-10-21): the base is `v1.6.1` (`tools/ble_base.txt`: its loader's hash). The
+  Bluetooth build is built with `FELUCCA_CPU2=0`: 1.6.1's second core (stacks and mailbox, 5.7 KB of `.data + .bss`)
+  and the BT stack do not both fit the RAM with its 4 KB kept spare, and they are untried together. 2ND CORE is an
+  opt-in beta, OFF by default; the plain build keeps it. Gate 2b and 2c also cover the second core's functions.
