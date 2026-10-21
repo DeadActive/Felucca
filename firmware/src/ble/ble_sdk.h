@@ -102,4 +102,23 @@ void hci_event_callback_set(btstack_packet_handler_t handler);
 void le_l2cap_register_packet_handler(btstack_packet_handler_t handler);
 uint16_t ble_vendor_set_default_att_mtu(uint16_t mtu);
 void user_client_init(uint16_t handle, uint8_t *buffer, uint16_t buffer_size);
+
+/* the device role (le_trans_data.c): the GATT server (att.h:119, 130, 140, 141, 96, 97), advertising (ble_api.h:423,
+ * 453, 485, 500), Just Works pairing (sm.h:32, 50, 52) */
+typedef uint16_t (*att_read_callback_t)(uint16_t con_handle, uint16_t attribute_handle, uint16_t offset, uint8_t *buffer,
+                                        uint16_t buffer_size);
+typedef int (*att_write_callback_t)(uint16_t con_handle, uint16_t attribute_handle, uint16_t transaction_mode,
+                                    uint16_t offset, uint8_t *buffer, uint16_t buffer_size);
+void att_server_init(uint8_t const *db, att_read_callback_t read_callback, att_write_callback_t write_callback);
+void att_server_register_packet_handler(btstack_packet_handler_t handler);
+void att_set_ccc_config(uint16_t handle, uint16_t cfg);
+uint16_t att_get_ccc_config(uint16_t handle);
+void sm_just_works_confirm(uint16_t con_handle);
+void sm_set_request_security(int enable);
+void sm_event_callback_set(void (*cbk_sm_ph)(uint8_t packet_type, uint16_t channel, uint8_t *packet, uint16_t size));
+#define ble_op_adv_enable(en) ble_user_cmd_prepare(BLE_SDK_CMD_ADV_ENABLE, 1, (int)(en))
+#define ble_op_set_adv_param(interval, type, channel) \
+    ble_user_cmd_prepare(BLE_SDK_CMD_ADV_PARAM, 3, (int)(interval), (int)(type), (int)(channel))
+#define ble_op_set_adv_data(len, data) ble_user_cmd_prepare(BLE_SDK_CMD_ADV_DATA, 2, (int)(len), (void *)(data))
+#define ble_op_set_rsp_data(len, data) ble_user_cmd_prepare(BLE_SDK_CMD_RSP_DATA, 2, (int)(len), (void *)(data))
 #endif

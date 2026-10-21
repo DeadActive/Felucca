@@ -49,6 +49,9 @@ void ble_ui_target(const uint8_t addr[6], uint32_t type)
 }
 void ble_ui_want(int on) { bs.wants++; bs.want = on; }
 void ble_ui_pause(int on) { bs.pauses++; bs.pause = on; }
+static int bs_role = -1;                             /* the last ble_ui_role (-1 none) */
+void ble_ui_role(int device) { bs_role = device; }
+uint32_t ble_ui_role_now(void) { return bs_role > 0; }
 void ble_user_start(void)
 {
     bs.starts++;

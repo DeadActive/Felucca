@@ -102,24 +102,24 @@ static void test_cursor(void)
     ok("PRESETS moves the cursor a row", btp.sel == 1u);
     turn(EN_PRESET, -1); frame();
     turn(EN_PRESET, -1); frame();
-    ok("the cursor wraps past the first row to the last (SCAN, no devices)", btp.sel == 4u);
+    ok("the cursor wraps past the first row to the last (SCAN, no devices)", btp.sel == 5u);
     turn(EN_PRESET, 1); frame();
     ok("the cursor wraps past the last row to the first", btp.sel == 0u);
     bs.state = BLE_ST_IDLE;
     dev(0, A1, 0, 1, -59, "SMC-Mixer");
     dev(1, A2, 1, 0, -80, "");
     frame();
-    row(6);
-    ok("the devices found are rows after SCAN", btp.sel == 6u && btp.n == 2u);
+    row(7);
+    ok("the devices found are rows after SCAN", btp.sel == 7u && btp.n == 2u);
     bs.ndev = 0;                                     /* a new scan emptied the BLE unit's list */
     frame();
-    ok("with the cursor on a device row the rows stay as they are", btp.sel == 6u && btp.n == 2u);
+    ok("with the cursor on a device row the rows stay as they are", btp.sel == 7u && btp.n == 2u);
     turn(EN_PRESET, 1); frame();
     ok("the cursor off the devices: the list is the BLE unit's again (empty), the cursor on a row",
        btp.sel == 0u && btp.n == 0u);
     dev(0, A1, 0, 1, -59, "SMC-Mixer");
     frame();
-    row(5);
+    row(6);
     dev(1, A2, 1, 1, -30, "Stronger");               /* seen later, stronger: listed after the row under the cursor */
     frame();
     ok("with the cursor on a device row a device found later is added below, nothing moves",
@@ -168,7 +168,7 @@ static void test_on_off(void)
 static void test_mode(void)
 {
     fresh();
-    row(2);
+    row(3);
     k1(1);
     ok("MODE, a knob right: SMC DAW, saved", saved().mode == BT_MODE_SMC);
     k1(1);
@@ -190,13 +190,13 @@ static void test_scan_pick_forget(void)
 {
     bt_set_t s;
     fresh();
-    row(4);
+    row(5);
     press(B_OCTUP);
     ok("SCAN while Bluetooth is OFF: no scan", !bs.scans);
     row(0);
     k1(1);
     bs.state = BLE_ST_IDLE;
-    row(4);
+    row(5);
     press(B_OCTUP);
     ok("SCAN, OCT+: a scan", bs.scans == 1u);
     bs.state = BLE_ST_SCANNING;
@@ -205,19 +205,19 @@ static void test_scan_pick_forget(void)
     dev(1, A1, 0, 1, -59, "SMC-Mixer");
     frame();
     ok("the list: BLE-MIDI devices first", btp.n == 2u && !memcmp(btp.dev[0].addr, A1, 6) && !memcmp(btp.dev[1].addr, A2, 6));
-    row(5);
+    row(6);
     bs.targets = 0;
     press(B_OCTUP);
     s = saved();
     ok("a device row, OCT+: remembered (saved), the target, reconnecting wanted",
        s.has && !memcmp(s.addr, A1, 6) && s.type == 0u && bs.targets == 1u && !memcmp(bs.taddr, A1, 6) && bs.want == 1);
     ok("picking a device keeps MODE", s.mode == BT_MODE_AUTO);
-    row(6);
+    row(7);
     press(B_OCTUP);
     s = saved();
     ok("another device row: it replaces the remembered one (a random address keeps its type)",
        !memcmp(s.addr, A2, 6) && s.type == 1u && bs.ttype == 1u);
-    row(3);
+    row(4);
     k1(1);
     ok("DEVICE, a knob right: nothing", saved().has);
     bs.targets = 0;
@@ -228,7 +228,7 @@ static void test_scan_pick_forget(void)
     bs.state = BLE_ST_FAILED;
     dev(0, A1, 0, 1, -59, "SMC-Mixer");
     frame();
-    row(5);
+    row(6);
     press(B_OCTUP);
     ok("after a failed start a device row does nothing", !saved().has && !bs.targets);
     /* the list changing under the cursor (a scan started and emptied it, or the signals re-sorted it) between what
@@ -239,7 +239,7 @@ static void test_scan_pick_forget(void)
     dev(0, A1, 0, 1, -59, "SMC-Mixer");
     dev(1, A2, 0, 1, -61, "Other MIDI");
     frame();
-    row(5);                                          /* the cursor on SMC-Mixer, as drawn */
+    row(6);                                          /* the cursor on SMC-Mixer, as drawn */
     dev(0, A2, 0, 1, -50, "Other MIDI");             /* .. and now the other one is the stronger */
     dev(1, A1, 0, 1, -59, "SMC-Mixer");
     press(B_OCTUP);
@@ -250,7 +250,7 @@ static void test_scan_pick_forget(void)
     bs.state = BLE_ST_SCANNING;
     dev(0, A1, 0, 1, -59, "SMC-Mixer");
     frame();
-    row(5);
+    row(6);
     bs.ndev = 0;                                     /* a new scan cleared the list */
     bs.scans = 0;
     press(B_OCTUP);
@@ -274,7 +274,7 @@ static void test_autostart_row(void)
     ok("a knob left: OFF, saved", !saved().autostart);
     press(B_OCTUP);
     ok("OCT+ toggles: ON", saved().autostart);
-    row(2);
+    row(3);
     press(B_OCTUP);
     s = saved();
     ok("AUTOSTART is kept when MODE changes", s.autostart && s.mode == BT_MODE_SMC);
@@ -357,6 +357,57 @@ static void test_autostart(void)
     ok("autostart: the delay survives the ms counter wrapping", bs.starts == 1u);
 }
 
+static void text_is_(const char *what, const char *want);
+static void test_role(void)
+{
+    bt_set_t s;
+    fresh();
+    k1(1);                                           /* BLUETOOTH ON (HOST): the role handed over first */
+    ok("ROLE: HOST by default, and BLUETOOTH ON hands the BLE unit the saved role", !saved().role && bs_role == 0);
+    bs.state = BLE_ST_IDLE;
+    dev(0, A1, 0, 1, -59, "SMC-Mixer");
+    frame();
+    row(2);
+    ok("the third row is ROLE", btp.sel == 2u);
+    k1(1);
+    s = saved();
+    ok("ROLE, a knob right: DEVICE, saved, handed to the BLE unit at once", s.role == 1u && bs_role == 1);
+    ok("ROLE DEVICE: no device list", btp.n == 0u);
+    turn(EN_PRESET, 1); frame();
+    ok("ROLE DEVICE: the cursor goes on to MODE", btp.sel == 3u);
+    turn(EN_PRESET, 1); frame();
+    ok("ROLE DEVICE: DEVICE, SCAN and the list are not rows: after MODE the cursor wraps to BLUETOOTH", btp.sel == 0u);
+    turn(EN_PRESET, -1); frame();
+    ok("ROLE DEVICE: and back from BLUETOOTH to MODE", btp.sel == 3u);
+    bs.state = BLE_ST_ADVERTISING;
+    text_is_("ROLE DEVICE: the state line while advertising", "WAITING FOR A HOST");
+    row(2);
+    press(B_OCTUP);
+    ok("ROLE, OCT+ toggles: HOST again, saved, handed over", !saved().role && bs_role == 0);
+    frame();
+    ok("ROLE HOST: the list is back", btp.n == 1u);
+    /* the saved role is what BLUETOOTH ON (and AUTOSTART) start in */
+    fresh();
+    {
+        bt_set_t d = {{0}, 0, BT_MODE_AUTO, 0, 0, 1};
+        bt_set_put(&d);
+    }
+    bs_role = -1;
+    k1(1);
+    ok("BLUETOOTH ON with ROLE DEVICE saved: the BLE unit is told DEVICE before it starts", bs_role == 1 && bs.starts == 1u);
+    {
+        bt_set_t d = {{0}, 1, BT_MODE_MIDI, 1, 1, 1}, g;
+        memcpy(d.addr, A2, 6);
+        bt_set_put(&d);
+        bt_set_get(&g);
+        ok("ROLE round-trips in the settings with the rest", g.role && g.autostart && g.has && g.type == 1u && g.mode == BT_MODE_MIDI);
+        d.role = 0;
+        bt_set_put(&d);
+        bt_set_get(&g);
+        ok("... and HOST too", !g.role && g.autostart);
+    }
+}
+
 static void test_close(void)
 {
     fresh();
@@ -379,6 +430,7 @@ static void text_is(const char *what, const char *want)
         printf("      (the state line is '%s', not '%s')\n", t, want);
     ok(what, str_eq(t, want));
 }
+static void text_is_(const char *what, const char *want) { text_is(what, want); }
 static void test_state_text(void)
 {
     char t[24];
@@ -433,6 +485,7 @@ int main(void)
     test_mode();
     test_scan_pick_forget();
     test_autostart_row();
+    test_role();
     test_autostart();
     test_close();
     test_state_text();

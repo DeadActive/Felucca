@@ -67,7 +67,7 @@ uint32_t ble_midi_room(void);                          /* the queue's free entri
  * (gate 3). States = ble_central.c's. Reconnecting (spec 3): want on + a target -> connect when the target is in the
  * scan list, else an auto scan, 2 s after the last scan end / link drop. */
 enum { BLE_ST_OFF, BLE_ST_STARTING, BLE_ST_IDLE, BLE_ST_SCANNING, BLE_ST_CONNECTING, BLE_ST_DISCOVERING,
-       BLE_ST_SUBSCRIBED, BLE_ST_RECEIVING, BLE_ST_FAILED };
+       BLE_ST_SUBSCRIBED, BLE_ST_RECEIVING, BLE_ST_FAILED, BLE_ST_ADVERTISING };
 typedef struct { uint8_t addr[6], type, midi; int8_t rssi; char name[24]; } ble_ui_dev_t;
 uint32_t ble_ui_state(void);
 const char *ble_ui_err(uint32_t *code);                /* the last error text ("" none) and its code */
@@ -79,5 +79,9 @@ void ble_ui_target(const uint8_t addr[6], uint32_t type);  /* the remembered dev
                                                           * pause; another device than the connected one disconnects */
 void ble_ui_want(int on);                  /* reconnecting wanted; 0 also disconnects, cancels a scan / connect */
 void ble_ui_pause(int on);                 /* the page's pause of reconnecting (0: the page closed) */
-int ble_ui_conn_name(char out[24]);        /* SUBSCRIBED / RECEIVING: 1 and the scanned name ("" none); else 0 */
+int ble_ui_conn_name(char out[24]);        /* SUBSCRIBED / RECEIVING: 1 and the scanned name ("" none; the device
+                                            * role: the host's address); else 0 */
+void ble_ui_role(int device);              /* ROLE: 0 HOST (scan, connect: the central), 1 DEVICE (advertise: a host
+                                            * connects to the FM-1). Applied once no scan, link or advertising is on */
+uint32_t ble_ui_role_now(void);            /* the role in effect */
 #endif

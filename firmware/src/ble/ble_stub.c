@@ -22,3 +22,5 @@ void ble_ui_target(const uint8_t addr[6], uint32_t type) { (void)addr; (void)typ
 void ble_ui_want(int on) { (void)on; }
 void ble_ui_pause(int on) { (void)on; }
 int ble_ui_conn_name(char out[24]) { (void)out; return 0; }
+void ble_ui_role(int device) { (void)device; }
+uint32_t ble_ui_role_now(void) { return 0; }

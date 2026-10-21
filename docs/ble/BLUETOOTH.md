@@ -2,8 +2,9 @@
 
 BLE MIDI: 2026 DEADACTIVE. From Hortator 0.16.0 (<https://github.com/DeadActive/hortator>), on Felucca 1.6.1.
 
-`FELUCCA_BLE=1 ./build.sh` builds Felucca with a Bluetooth LE MIDI **host**: the FM-1 scans for a BLE-MIDI device (a
-keyboard, a controller, an M-VAVE SMC-Mixer), connects to it, and takes and sends MIDI over it. The package is
+`FELUCCA_BLE=1 ./build.sh` builds Felucca with Bluetooth LE MIDI in two roles: **HOST**, the FM-1 scans for a
+BLE-MIDI device (a keyboard, a controller, an M-VAVE SMC-Mixer), connects to it, and takes and sends MIDI over it;
+**DEVICE**, the FM-1 is itself a BLE-MIDI device that a computer, a tablet or a phone connects to. The package is
 `build/felucca-ble.fwsc`. The plain build (`./build.sh`) is Felucca 1.6 as upstream, byte for byte, and either
 installs over the other.
 
@@ -32,6 +33,7 @@ acts on it, OCT- goes back to the menu, HOME closes the menu.
 | --- | --- | --- |
 | BLUETOOTH | right ON, left OFF | ON / OFF |
 | AUTOSTART | right ON, left OFF (saved) | ON / OFF |
+| ROLE | right DEVICE, left HOST (saved) | HOST / DEVICE |
 | MODE | AUTO, SMC DAW, MIDI (stops at the ends) | the next one (wraps) |
 | DEVICE | left: forget the remembered device (a link drops) | - |
 | SCAN | - | a 10 s scan (Bluetooth ON only) |
@@ -54,6 +56,24 @@ cursor up to SCAN or above to see the list in its order again.
   `BT START TIMEOUT`). After FAILED only a power cycle starts it again. Under it: the last error.
 - The screen says `BT CONNECTED` and `BT LOST`.
 - MODE and the remembered device are saved with the settings.
+
+## ROLE DEVICE: a computer or a tablet connects to the FM-1
+
+With ROLE DEVICE and BLUETOOTH ON (or AUTOSTART), the FM-1 advertises the standard BLE-MIDI service as
+**Felucca FM-1** and the state line says `WAITING FOR A HOST`. DEVICE, SCAN and the device list are not shown in this
+role. Connect from:
+
+- **macOS:** Audio MIDI Setup > Window > Show MIDI Studio > the Bluetooth button (Bluetooth Configuration), then
+  **Felucca FM-1** > Connect. It then appears as a MIDI port in every app.
+- **iOS / iPadOS:** an app's Bluetooth MIDI screen (GarageBand: Settings > Advanced > Bluetooth MIDI Devices; many
+  synth and DAW apps have one), then **Felucca FM-1**.
+- **Android, Windows:** an app that connects BLE-MIDI devices (Windows has no built-in pairing for them).
+
+Once connected the state line says `CONNECTED` and the host's address. Then it is MIDI as in MIDI mode, both ways: the
+host's notes, CCs, MIDI LEARN and clock (CLK BLE) play the FM-1; the FM-1's keys and mod wheel go to the host once it
+listens (it subscribes on its own). No pairing is needed; a host that asks for it gets Just Works, kept until
+power-off. When the host disconnects the FM-1 advertises again. Changing ROLE ends a scan, a link or the advertising
+first, then switches.
 
 ## MODE
 

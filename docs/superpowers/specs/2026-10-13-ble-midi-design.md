@@ -260,3 +260,11 @@ file. The SMC mapping values come from the user's own `smc-seq` project. The BLE
   Bluetooth build is built with `FELUCCA_CPU2=0`: 1.6.1's second core (stacks and mailbox, 5.7 KB of `.data + .bss`)
   and the BT stack do not both fit the RAM with its 4 KB kept spare, and they are untried together. 2ND CORE is an
   opt-in beta, OFF by default; the plain build keeps it. Gate 2b and 2c also cover the second core's functions.
+- **ROLE DEVICE** (the user, 2026-10-21: "add ble midi client mode too, so i can connect"): a saved ROLE (flags bit
+  4: HOST / DEVICE) on the page. DEVICE: the FM-1 is a BLE-MIDI peripheral: a GATT server with the BLE-MIDI service
+  and characteristic (`firmware/src/ble/ble_gatt.c`, the JieLi SDK's table format, host-tested), advertising as
+  "Felucca FM-1"; a host's writes are BLE-MIDI in (as MIDI mode), the out queue goes as notifications once the host
+  enabled them; Just Works if a host asks to pair, no bond stored. The role is switched only with no scan, link or
+  advertising (ended first), as the SDK's examples switch (`ble_stack_gatt_role`, the handlers registered again); the
+  central's tested start is unchanged (the server's table is registered the first time DEVICE is applied). 6,340 B
+  of flash, 60 B of RAM: 37,152 B of the slot stay free.

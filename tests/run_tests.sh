@@ -501,12 +501,13 @@ run "installer CLI (fm1_install.py) against a simulated FM-1" python3 tests/inst
 
 # the Bluetooth build (FELUCCA_BLE=1, BLE MIDI: 2026 DEADACTIVE)
 run "SAMPLE sets left out of a build (gen_samples.py FELUCCA_SMP_DROP)" python3 tests/smp_drop_test.py "$OUT/smp_drop"
-for t in ble_midi ble_scan ble_central ble_vm; do $CC -o "$OUT/${t}_test" "tests/ble/${t}_test.c"; done
+for t in ble_midi ble_scan ble_central ble_vm ble_gatt; do $CC -o "$OUT/${t}_test" "tests/ble/${t}_test.c"; done
 $CC -Wno-deprecated-declarations -Ifirmware/src/ble -o "$OUT/ble_os_test" tests/ble/ble_os_test.c
 run "BLE-MIDI parser and packer" "$OUT/ble_midi_test"
 run "BLE scan table" "$OUT/ble_scan_test"
 run "BLE central state machine, reconnecting, UUID match, monitor text" "$OUT/ble_central_test"
 run "BLE stored RF calibration (config store)" "$OUT/ble_vm_test"
+run "BLE device role: the GATT table (BLE-MIDI service, characteristic, CCCD), advertising data, scan response" "$OUT/ble_gatt_test"
 run "BLE OS layer (host back end)" "$OUT/ble_os_test"
 run "BLE fault path: records and reboots, never waits on interrupts" python3 tests/ble/check_ble_fatal.py
 run "gate 2 tool self-test (update path: machine code, sources)" python3 tools/check_update_path.py --selftest

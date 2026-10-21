@@ -47,6 +47,12 @@ reboot: `fatal` 1 a library assert, 2 a library reset request, 3 a BT task's sta
 8a. **AUTOSTART.** On the page, AUTOSTART ON (with a remembered device). Power off and on. Expected: about 3 s after
     the start the state goes STARTING, IDLE and connects by itself. Then hold OCT- + OCT+ for 5 s: UBOOT still comes.
     AUTOSTART OFF again if you prefer Bluetooth off at power-on.
+8b. **ROLE DEVICE.** On the page, ROLE DEVICE. Expected: DEVICE, SCAN and the list go; with BLUETOOTH ON the state
+    line says `WAITING FOR A HOST`. On a Mac: Audio MIDI Setup > MIDI Studio > Bluetooth: **Felucca FM-1** is listed;
+    Connect. Expected: `CONNECTED` and an address on the FM-1; a MIDI monitor or a DAW on the Mac sees a "Felucca FM-1"
+    port: the FM-1's keys come in, notes from the Mac play the FM-1 (MIDI IN CH1-4: channel 1 plays track 1); with CLK
+    BLE the Mac's clock runs the transport. Disconnect on the Mac: `WAITING FOR A HOST` again. ROLE HOST: scanning and
+    the SMC-Mixer work as before (step 4). `ble` shows `state ADVERTISING` while waiting.
 9. **Under load.** A pattern plays while connected with faders and knobs moving. Expected: no audible glitch;
    `ble` shows `audio_late 0`, `errs 0`, `out_drops 0`, `in_drops 0`. Copy the `ble` output (`loop last / max`,
    `longest BT task run`, `heap high`, each task's `stack free`, `irq_lowered 0`).
@@ -72,6 +78,7 @@ reboot: `fatal` 1 a library assert, 2 a library reset request, 3 a BT task's sta
 | 7 MIDI mode | | | |
 | 8 reconnect | | | |
 | 8a autostart | | | |
+| 8b device role | | | |
 | 9 under load | | | |
 | 10 saving | | | |
 | 11 UBOOT, BT on | | | |

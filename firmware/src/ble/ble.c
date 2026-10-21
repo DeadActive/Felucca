@@ -49,6 +49,7 @@ int ble_started(void) { return ble_on; }
  * heap_high / alloc_fails = the heap's most in use and its refused requests; irq_lowered = BT IRQ requests above
  * priority 2, attached at 2 (ble_port.c request_irq) */
 
+#include "ble/ble_gatt.c"                      /* the device role's GATT table and advertising data */
 #include "ble/ble_central.c"
 void ble_service(void)                             /* the main loop (ed_service): a 5 ms slice for the BT tasks */
 {

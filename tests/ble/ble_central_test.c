@@ -28,6 +28,20 @@ int main(void)
     static const uint32_t live[] = {BLE_CONNECTING, BLE_DISCOVERING, BLE_SUBSCRIBED, BLE_RECEIVING};
     uint32_t i;
     CHECK(ble_next(BLE_STARTING, EV_INIT_OK) == BLE_IDLE, "start ok -> idle");
+    /* the device role (a host connects to the FM-1) */
+    CHECK(ble_next(BLE_ADVERTISING, EV_CONNECTED) == BLE_SUBSCRIBED, "device: a host connects while advertising -> linked");
+    CHECK(ble_next(BLE_ADVERTISING, EV_DISCONNECTED) == BLE_ADVERTISING, "device: no link while advertising: a disconnect changes nothing");
+    CHECK(ble_next(BLE_SUBSCRIBED, EV_NOTIFY) == BLE_RECEIVING, "device: MIDI written -> receiving");
+    CHECK(ble_next(BLE_RECEIVING, EV_DISCONNECTED) == BLE_IDLE, "device: the host leaves -> idle (then advertising again)");
+    CHECK(ble_dev_step(1, BLE_IDLE) == BV_ADV_ON, "device step: wanted and idle -> advertise");
+    CHECK(ble_dev_step(1, BLE_ADVERTISING) == BV_NONE && ble_dev_step(1, BLE_RECEIVING) == BV_NONE,
+          "device step: wanted and advertising or linked -> nothing");
+    CHECK(ble_dev_step(0, BLE_ADVERTISING) == BV_ADV_OFF, "device step: not wanted while advertising -> stop advertising");
+    CHECK(ble_dev_step(0, BLE_SUBSCRIBED) == BV_DROP && ble_dev_step(0, BLE_RECEIVING) == BV_DROP,
+          "device step: not wanted while linked -> disconnect");
+    CHECK(ble_dev_step(0, BLE_IDLE) == BV_NONE && ble_dev_step(1, BLE_OFF) == BV_NONE &&
+          ble_dev_step(1, BLE_STARTING) == BV_NONE && ble_dev_step(1, BLE_FAILED) == BV_NONE,
+          "device step: not started, failed or idle and unwanted -> nothing");
     CHECK(ble_next(BLE_STARTING, EV_TIMEOUT) == BLE_FAILED, "start timeout -> failed");
     CHECK(ble_next(BLE_STARTING, EV_INIT_FAIL) == BLE_FAILED, "start failure -> failed");
     CHECK(ble_next(BLE_SCANNING, EV_SCAN_DONE) == BLE_IDLE, "scan done -> idle");

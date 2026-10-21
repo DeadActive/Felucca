@@ -49,6 +49,17 @@ says NO SAMPLE once; SLICE keeps BREAK and the user slots and has no PIANO sourc
 
 The core's side costs 5,816 B of flash and 144 B of RAM; the page's and the layout's state is in the pool.
 
+## On 1.6.1, one core, with the device role (2026-10-21)
+
+| | image B | slot free B | `.data + .bss` B (of 73,728) | pool B (of 368,640) |
+| --- | ---: | ---: | ---: | ---: |
+| Felucca 1.6.1 (upstream main), plain, two cores built in | 511,464 | 70,100 | 60,984 | 328,896 |
+| the Bluetooth build on 1.6.1, one core (`FELUCCA_CPU2=0`) | 538,072 | 43,492 | 67,852 | 352,992 |
+| **+ ROLE DEVICE (the GATT server, advertising)** | **544,412** | **37,152** | **67,912** | **352,992** |
+
+The device role costs 6,340 B of flash and 60 B of RAM. With the second core built in, `.data + .bss` would be about
+73,450 B: over the 4 KB the build keeps spare.
+
 Keeping one sustained set (FLUTE or SAX) would leave 18,620 B before the page and the SMC layout, about 13 KB after
 them: possible if the margin is given up. That is the user's call:
 `FELUCCA_SMP_DROP=PIANO,FLUTE FELUCCA_BLE=1 ./build.sh` builds that variant, and the build then stops on the 32 KB

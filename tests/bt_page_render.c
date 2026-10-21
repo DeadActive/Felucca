@@ -23,9 +23,11 @@ static void smc_in(uint32_t pkt) { (void)pkt; }
 #include "../firmware/src/bt_midi.c"
 #include "../firmware/src/bt_page.c"
 
-enum { BS_OFF, BS_STARTING, BS_SCAN, BS_SCAN_LIST, BS_LIST_END, BS_CONNECTED, BS_CONNECTED_LONG, BS_FAILED, BS_ERROR, BS_REC, BS_COUNT };
+enum { BS_OFF, BS_STARTING, BS_SCAN, BS_SCAN_LIST, BS_LIST_END, BS_CONNECTED, BS_CONNECTED_LONG, BS_FAILED, BS_ERROR, BS_REC,
+       BS_DEV_WAIT, BS_DEV_HOST, BS_COUNT };
 static const char *const BS_NAME[BS_COUNT] = {"bt_off", "bt_starting", "bt_scan", "bt_scan_list", "bt_list_end", "bt_connected",
-                                            "bt_connected_long", "bt_failed", "bt_error", "bt_rec"};
+                                            "bt_connected_long", "bt_failed", "bt_error", "bt_rec",
+                                            "bt_device_waiting", "bt_device_host"};
 static void dev(uint32_t i, uint8_t a0, uint32_t type, int midi, int rssi, const char *name)
 {
     ble_ui_dev_t *d = &bs.dev[i];
@@ -58,10 +60,10 @@ static void bt_setup(int s)
     ui.menu_sel = MI_BT;
     switch (s) {
     case BS_OFF: break;
-    case BS_STARTING: btp.on = 1; bs.state = BLE_ST_STARTING; btp.sel = 2; break;
-    case BS_SCAN: btp.on = 1; bs.state = BLE_ST_SCANNING; bs.left = 10; btp.sel = 4; break;
+    case BS_STARTING: btp.on = 1; bs.state = BLE_ST_STARTING; btp.sel = 3; break;
+    case BS_SCAN: btp.on = 1; bs.state = BLE_ST_SCANNING; bs.left = 10; btp.sel = 5; break;
     case BS_SCAN_LIST:
-        btp.on = 1; bs.state = BLE_ST_SCANNING; bs.left = 7; btp.sel = 5;
+        btp.on = 1; bs.state = BLE_ST_SCANNING; bs.left = 7; btp.sel = 6;
         dev(0, 0x9A, 1, 0, -40, "");
         dev(1, 0x11, 0, 1, -59, "SMC-Mixer");
         dev(2, 0x22, 0, 1, -127, ODD);
@@ -80,7 +82,7 @@ static void bt_setup(int s)
         remember(0x11, BT_MODE_AUTO);
         break;
     case BS_CONNECTED:
-        btp.on = 1; bs.state = BLE_ST_RECEIVING; btp.sel = 3; conn_up = 1;
+        btp.on = 1; bs.state = BLE_ST_RECEIVING; btp.sel = 4; conn_up = 1;
         strcpy(conn_name, "SMC-Mixer");
         remember(0x11, BT_MODE_SMC);
         break;
@@ -92,10 +94,24 @@ static void bt_setup(int s)
         break;
     case BS_FAILED: bs.state = BLE_ST_FAILED; bs.err = "NO RF TRIM IN FLASH"; remember(0x11, BT_MODE_AUTO); break;
     case BS_ERROR:
-        btp.on = 1; bs.state = BLE_ST_IDLE; bs.err = "DISCONNECTED 0x08"; bs.code = 8; btp.sel = 4;
+        btp.on = 1; bs.state = BLE_ST_IDLE; bs.err = "DISCONNECTED 0x08"; bs.code = 8; btp.sel = 5;
         remember(0x11, BT_MODE_AUTO);
         break;
     case BS_REC: btp.on = 1; bs.state = BLE_ST_IDLE; song.rec = 1; break;   /* (the head: the REC mark beside BACK) */
+    case BS_DEV_WAIT: {                              /* ROLE DEVICE: advertising, the cursor on ROLE */
+        bt_set_t d = {{0}, 0, BT_MODE_AUTO, 0, 1, 1};
+        bt_set_put(&d);
+        btp.on = 1; bs.state = BLE_ST_ADVERTISING; btp.sel = 2;
+        dev(0, 0x11, 0, 1, -59, "SMC-Mixer");      /* (a list the device role does not show) */
+        break;
+    }
+    case BS_DEV_HOST: {                              /* ROLE DEVICE: a host connected (its address as the name) */
+        bt_set_t d = {{0}, 0, BT_MODE_MIDI, 0, 0, 1};
+        bt_set_put(&d);
+        btp.on = 1; bs.state = BLE_ST_RECEIVING; btp.sel = 3; conn_up = 1;
+        strcpy(conn_name, "5A:3C:91:0E:77:C2");
+        break;
+    }
     }
 }
 static void bt_draw(void)
@@ -141,7 +157,7 @@ int main(int argc, char **argv)
     al_flush();
     {   /* what the page must show: the state, the rows, a device's tag and signal (GREY's last screen is not kept:
          * draw one and look for the words among the boxes the lint saw) */
-        static const char *const WANT[] = {"SCANNING 7 S", "BLUETOOTH", "AUTOSTART", "MODE", "DEVICE", "SCAN", "SMC-Mixer", "MIDI", "-59", "ON", "AUTO", "NONE"};
+        static const char *const WANT[] = {"SCANNING 7 S", "BLUETOOTH", "AUTOSTART", "ROLE", "HOST", "MODE", "DEVICE", "SCAN", "SMC-Mixer", "MIDI", "-59", "ON", "AUTO", "NONE"};
         uint32_t i, j, miss = 0;
         bt_setup(BS_SCAN_LIST);
         pal(UI_GREY_INDEX);
