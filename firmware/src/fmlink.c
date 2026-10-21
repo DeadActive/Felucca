@@ -184,6 +184,15 @@ static uint32_t fml_poll(fml_t *f, uint32_t now, uint8_t *out)
 }
 
 static int32_t fml_samples(int64_t beats_q16, uint32_t spb) { return (int32_t)(beats_q16 * (int64_t)spb / 65536); }
+/* dt ticks as beats (Q16) at spb samples a beat, to the nearest sample: no 64-bit division (fml_block runs in the audio
+ * interrupt, whose code has no __divdi3); the fraction in two 8-bit steps of long division (r << 16 overflows) */
+static int64_t fml_beats(int32_t dt, uint32_t spb)
+{
+    uint32_t a = dt < 0 ? 0u - (uint32_t)dt : (uint32_t)dt, s = (a + FML_TPS / 2u) / FML_TPS, r = s % spb;
+    uint32_t hi = (r << 8) / spb, lo = (((r << 8) % spb) << 8) / spb;
+    int64_t q = (int64_t)(s / spb) * 65536 + (int64_t)(hi << 8 | lo);
+    return dt < 0 ? -q : q;
+}
 
 /* one block of n samples heard at tick t, at this unit's bpm (spb samples a beat), its sequencer playing or not, the
  * UI's transport request (0 none, 1 PLAY, 2 STOP, 3 PLAY from the top). Returns the transport request to act on (the
@@ -199,6 +208,11 @@ static uint32_t fml_block(fml_t *f, uint32_t t, uint32_t n, uint32_t bpm, uint32
     if (!playing && f->playing)
         f->playing = 0;                             /* (stopped by other means: a load, the clock changed) */
     if (f->role == FML_LEADER) {
+        if (playing && !f->playing && !f->pending) {   /* started by other means (a count-in's end, SONG): from here */
+            f->playing = 1;
+            f->beats = f->rem = 0;
+            f->announce = 1;
+        }
         if (ui_req == 1u || ui_req == 3u) {
             if (linked) {                           /* both start at start_at */
                 f->pending = 1;
@@ -228,8 +242,7 @@ static uint32_t fml_block(fml_t *f, uint32_t t, uint32_t n, uint32_t bpm, uint32
             c = (int32_t)(t - f->start_at) / (int32_t)FML_TPS;   /* late: on by that much in this block */
         }
     } else if (f->role == FML_FOLLOWER && linked && f->l_valid && f->off_ok) {
-        int64_t exp = (int64_t)f->l_bref +
-                      (int64_t)(int32_t)(t + (uint32_t)f->off - f->l_tref) * 65536 / (int64_t)(spb * FML_TPS);
+        int64_t exp = (int64_t)f->l_bref + fml_beats((int32_t)(t + (uint32_t)f->off - f->l_tref), spb);
         if (ui_req)
             f->msg_follow = 1;                      /* its own PLAY / STOP: the leader's are what count */
         if (f->l_playing && !f->playing) {

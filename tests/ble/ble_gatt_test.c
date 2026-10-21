@@ -4,7 +4,7 @@
  * (records of size, flags, handle, UUID 16/128, value, all little endian, ended by 0x0000; le_trans_data.h), the
  * advertising data and the scan response (AD structures, at most 31 bytes each). Every record walked: the handles in
  * order, the BLE-MIDI service and characteristic (MMA BLE-MIDI 1.0) with the right UUIDs, properties and flags, its
- * CCCD, the GAP device name. */
+ * CCCD, the GAP device name; the FM-Link service, characteristic and CCCD after them. */
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
@@ -15,6 +15,8 @@ static int fails;
 /* the UUIDs as written, most significant byte first: the table stores them reversed */
 static const uint8_t SVC[16] = {0x03, 0xB8, 0x0E, 0x5A, 0xED, 0xE8, 0x4B, 0x33, 0xA7, 0x51, 0x6C, 0xE3, 0x4E, 0xC4, 0xC7, 0x00};
 static const uint8_t CHR[16] = {0x77, 0x72, 0xE5, 0xDB, 0x38, 0x68, 0x41, 0x12, 0xA1, 0xA9, 0xF2, 0x66, 0x9D, 0x10, 0x6B, 0xF3};
+static const uint8_t FSVC[16] = {0xF3, 0x11, 0x00, 0x00, 0x6E, 0x4C, 0x4A, 0x5B, 0x9C, 0x2D, 0x1F, 0x3E, 0x5D, 0x7A, 0x9B, 0x0C};
+static const uint8_t FCHR[16] = {0xF3, 0x11, 0x00, 0x01, 0x6E, 0x4C, 0x4A, 0x5B, 0x9C, 0x2D, 0x1F, 0x3E, 0x5D, 0x7A, 0x9B, 0x0C};
 static int reversed(const uint8_t *p, const uint8_t *uuid)
 {
     int i;
@@ -48,7 +50,7 @@ int main(void)
     rec_t r[16];
     uint32_t n = walk(r, 16), i, ok;
     const uint8_t *a;
-    CHECK(n == 7u, "the table: 7 records, ended by 0x0000 at its last bytes");
+    CHECK(n == 11u, "the table: 11 records, ended by 0x0000 at its last bytes");
     for (i = 0, ok = n != 0u; i < n; i++)
         ok &= r[i].handle == i + 1u && r[i].size >= 8u;
     CHECK(ok, "the handles run 1, 2, 3 ...");
@@ -67,6 +69,15 @@ int main(void)
     CHECK(n >= 7u && r[6].handle == BLE_GATT_MIDI_CCC && BLE_GATT_MIDI_CCC == BLE_GATT_MIDI + 1u && r[6].flags == 0x010Au &&
           rd16(r[6].uuid) == 0x2902u && r[6].val_len == 2u && rd16(r[6].val) == 0u,
           "7: its CCCD right after it (notifications off until the host turns them on)");
+    CHECK(n >= 8u && r[7].flags == 0x0002u && rd16(r[7].uuid) == 0x2800u && r[7].val_len == 16u && reversed(r[7].val, FSVC),
+          "8: the FM-Link service F3110000-6E4C-4A5B-9C2D-1F3E5D7A9B0C");
+    CHECK(n >= 9u && rd16(r[8].uuid) == 0x2803u && r[8].val[0] == 0x14u && rd16(r[8].val + 1) == BLE_GATT_FML &&
+          r[8].val_len == 19u && reversed(r[8].val + 3, FCHR),
+          "9: the FM-Link characteristic F3110001-...: WRITE WITHOUT RESPONSE | NOTIFY, its value at BLE_GATT_FML");
+    CHECK(n >= 10u && r[9].handle == BLE_GATT_FML && r[9].flags == 0x0314u && r[9].uuid_len == 16u &&
+          reversed(r[9].uuid, FCHR) && r[9].val_len == 0u, "10: the FM-Link value: those properties, DYNAMIC, a 128-bit UUID");
+    CHECK(n >= 11u && r[10].handle == BLE_GATT_FML_CCC && BLE_GATT_FML_CCC == BLE_GATT_FML + 1u && r[10].flags == 0x010Au &&
+          rd16(r[10].uuid) == 0x2902u && r[10].val_len == 2u && rd16(r[10].val) == 0u, "11: its CCCD right after it");
     /* the advertising data: flags, the service UUID; the scan response: the name */
     a = BLE_ADV_DATA;
     CHECK(sizeof BLE_ADV_DATA <= 31u && sizeof BLE_RSP_DATA <= 31u, "advertising data and scan response: 31 bytes at most");

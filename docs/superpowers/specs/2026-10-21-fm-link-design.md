@@ -83,11 +83,15 @@ working beside it (a Mac connects to a DEVICE FM-1 as before).
   (±50 ppm, a random offset), joined by a simulated link (15 ms connection events, bunching, random delays, lost
   packets); checks: a fresh start within 1 ms of each other, the beat positions within 2 ms over minutes, a BPM change,
   a join on the next bar, STOP, a lost link.
-- BLE unit: the FM-Link characteristic (`ble_gatt.c`), its discovery and send / receive, packets queued with the tick
-  they came at; `ble_core.h`: `ble_fml_send`, `core_fml_rx`, `core_ticks`.
-- Core: `bt_fml.c` (the engine's glue: ISR block hook from `seq.c events_block`, the main loop's frame, the UI message),
-  `N_CLOCK` gains `LINK` (value 4). `audio.c` records each block's heard tick (guarded). All under `FELUCCA_BLE`: the
-  plain build stays byte-identical to upstream.
+- BLE unit: the FM-Link characteristic (`ble_gatt.c`, handles 0x0008..0x000B), its discovery (HOST) and send / receive,
+  packets queued with the tick they came at; `ble_core.h`: `ble_fml_send`, `core_fml_rx`. (As built: the DEVICE role
+  notifies with `ATT_OP_NOTIFY` once the host has written to the characteristic, so the host writes no second CCCD.)
+- Core: `bt_fml.c` (the engine's glue: ISR block hook from `seq.c events_block`, the main loop's frame, the UI message,
+  a message kept while the BLE unit has no room), `N_CLOCK` gains `LINK` (value 4), the console's `fml`. The block's
+  heard tick is `audio.c`'s existing `kb_out_tick` (as built: no `audio.c` change). All under `FELUCCA_BLE`: the
+  plain build stays byte-identical to upstream (checked: `cmp` with upstream built the same day).
+- As built: the engine runs in the audio interrupt, whose code has no 64-bit division: ticks to beats is 32-bit long
+  division (`fml_beats`). A leader whose sequencer started by other means (a count-in's end, SONG) announces it.
 - Gates as before; gate 2c's lists change only if the update path's code does.
 
 ## 8. Not in this step

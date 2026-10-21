@@ -31,6 +31,7 @@ static uint32_t smc_seen;
 static void smc_in(uint32_t pkt) { (void)pkt; smc_seen++; }
 #endif
 #include "../firmware/src/bt_midi.c"
+#include "../firmware/src/bt_fml.c"
 #ifdef BT_TEST_PAGE                                 /* (ui_menu.c's Bluetooth row needs the page) */
 #include "../firmware/src/bt_page.c"
 #endif
@@ -193,8 +194,8 @@ static void test_midi_mode_in(void)
 static void test_clock(void)
 {
     uint32_t i;
-    ok("CLK: the clock sources end with BLE (value 3)",
-       GP[G_CLOCK].max == 3 && str_eq(GP[G_CLOCK].names[3], "BLE"));
+    ok("CLK: BLE (value 3), then FM-Link's LINK (4), the last",
+       GP[G_CLOCK].max == 4 && str_eq(GP[G_CLOCK].names[3], "BLE") && str_eq(GP[G_CLOCK].names[4], "LINK"));
     fresh(BT_MODE_MIDI);
     link_to("Xkey Air");
     song.g[G_CLOCK] = 3;

@@ -67,4 +67,5 @@
 #define BLE_SDK_ADV_IND 0
 #define BLE_SDK_ADV_CHANNEL_ALL 7
 #define BLE_SDK_ATT_OP_AUTO_READ_CCC 0
+#define BLE_SDK_ATT_OP_NOTIFY 1                     /* (att.h: notify without checking the CCCD) */
 #define BLE_SDK_SM_EVENT_JUST_WORKS_REQUEST 208

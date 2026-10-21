@@ -69,6 +69,15 @@ int main(void)
         CHECK(ble_is_midi_char(be), "MIDI characteristic UUID, string order");
         CHECK(ble_is_midi_char(le), "MIDI characteristic UUID, little-endian order");
         CHECK(!ble_is_midi_char(other), "another UUID is not the MIDI characteristic");
+        {   /* the FM-Link characteristic F3110001-6E4C-4A5B-9C2D-1F3E5D7A9B0C, both orders; not the MIDI one */
+            static const uint8_t fbe[16] = {0xF3, 0x11, 0x00, 0x01, 0x6E, 0x4C, 0x4A, 0x5B, 0x9C, 0x2D, 0x1F, 0x3E, 0x5D, 0x7A, 0x9B, 0x0C};
+            uint8_t fle[16];
+            int k;
+            for (k = 0; k < 16; k++)
+                fle[k] = fbe[15 - k];
+            CHECK(ble_is_fml_char(fbe) && ble_is_fml_char(fle), "FM-Link characteristic UUID, both orders");
+            CHECK(!ble_is_fml_char(be) && !ble_is_midi_char(fbe), "FM-Link's and MIDI's UUIDs are told apart");
+        }
     }
     {   /* monitor lines from USB-MIDI packets (cin | status << 8 | d1 << 16 | d2 << 24) */
         char t[32];

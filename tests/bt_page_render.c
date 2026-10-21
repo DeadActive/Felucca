@@ -21,6 +21,7 @@ uint32_t ble_midi_room(void) { return 0; }
 static void smc_in(uint32_t pkt) { (void)pkt; }
 #endif
 #include "../firmware/src/bt_midi.c"
+#include "../firmware/src/bt_fml.c"
 #include "../firmware/src/bt_page.c"
 
 enum { BS_OFF, BS_STARTING, BS_SCAN, BS_SCAN_LIST, BS_LIST_END, BS_CONNECTED, BS_CONNECTED_LONG, BS_FAILED, BS_ERROR, BS_REC,

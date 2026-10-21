@@ -3,7 +3,8 @@
  * Drum machine fork: 2026 DEADACTIVE */
 /* The BLE unit's entry points the core calls (firmware/src/ble/ble_core.h), as host stubs for the FELUCCA_BLE core
  * tests (after ui_host.h): the connected device's name, the Bluetooth page's ble_ui_* (state the test sets in `bs`,
- * the calls counted) and ble_user_start. Each test defines ble_midi_send. */
+ * the calls counted) and ble_user_start. Each test defines ble_midi_send; ble_fml_send (FM-Link out) sends nothing
+ * unless the test defines BLE_FML_SEND_OWN and its own. */
 #define memset felucca_memset                         /* (ble_core.h declares libc.c's, as the firmware's) */
 #define memcpy felucca_memcpy
 #define memcmp felucca_memcmp
@@ -58,3 +59,6 @@ void ble_user_start(void)
     if (bs.state == BLE_ST_OFF)
         bs.state = BLE_ST_STARTING;
 }
+#ifndef BLE_FML_SEND_OWN
+int ble_fml_send(const uint8_t *p, uint32_t len) { (void)p; (void)len; return 0; }
+#endif

@@ -523,11 +523,13 @@ if [ -f build/gen/ui_fonts.h ]; then
     run "Bluetooth page: the row in MENU > SYSTEM, the cursor, ON / OFF, MODE, DEVICE, SCAN, a pick, the state line" "$OUT/bt_page_test"
     $CC -w -DFELUCCA_BLE=1 -Ibuild/gen -Ifirmware/src -Itests -o "$OUT/smc_test" tests/smc_test.c -lm
     run "SMC-Mixer DAW layout: faders with pickup, knobs, MUTE SOLO REC SELECT, the transport, the LEDs, the mixer gone" "$OUT/smc_test"
+    $CC -w -DFELUCCA_BLE=1 -Ibuild/gen -Ifirmware/src -Itests -o "$OUT/bt_fml_test" tests/bt_fml_test.c -lm
+    run "FM-Link's glue through the sequencer: CLK INT leads, LINK follows; PLAY, STOP, BPM, its own PLAY held, no link" "$OUT/bt_fml_test"
     $CC -w -DFELUCCA_BLE=1 -Ibuild/gen -Ifirmware/src -Itests -o "$OUT/bt_page_render" tests/bt_page_render.c -lm
     run "Bluetooth page: every state in every palette, FLAT and LINE, through the layout lint" "$OUT/bt_page_render" build/ui_bt
     if python3 -c "import PIL" 2>/dev/null; then python3 tests/ui_render.py build/ui_bt >/dev/null; fi
     $CC -w -Ibuild/gen -Ifirmware/src -Itests -o "$OUT/clk_ble_plain_test" tests/clk_ble_plain_test.c -lm
-    run "the plain build opens a project saved with CLK BLE (as TRS)" "$OUT/clk_ble_plain_test"
+    run "the plain build opens a project saved with CLK BLE or LINK (as TRS)" "$OUT/clk_ble_plain_test"
 fi
 
 if command -v node >/dev/null 2>&1; then

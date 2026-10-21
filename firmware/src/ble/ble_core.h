@@ -43,6 +43,8 @@ void core_con_puts(const char *s);
  * linked; up = 1 once on entering SUBSCRIBED, 0 once on leaving SUBSCRIBED / RECEIVING */
 void core_ble_midi_in(uint32_t pkt);
 void core_ble_link(int up);
+/* FM-Link in (ble_service): one message from the other FM-1 and the TIMER4 tick it came at (fmlink.c) */
+void core_fml_rx(const uint8_t *p, uint32_t len, uint32_t t);
 /* MIDI mode: received packets the core's input ring refused (its last 8 slots are TRS MIDI's), for `ble` */
 uint32_t core_ble_in_drops(void);
 /* libc.c */
@@ -63,6 +65,9 @@ int ble_started(void);
  * sends only what ble_midi_room allows, so out_drops counts real losses only */
 int ble_midi_send(const uint8_t *m, uint32_t n);
 uint32_t ble_midi_room(void);                          /* the queue's free entries; 0 when not connected */
+/* FM-Link out (main loop only): one message (at most 20 bytes) to the other FM-1 on its own characteristic (ble_gatt.c);
+ * 1 = sent, 0 = not linked to an FM-1 or no room now */
+int ble_fml_send(const uint8_t *p, uint32_t len);
 /* the Bluetooth page (main loop only). None of these starts the stack: the page's BLUETOOTH ON calls ble_user_start
  * (gate 3). States = ble_central.c's. Reconnecting (spec 3): want on + a target -> connect when the target is in the
  * scan list, else an auto scan, 2 s after the last scan end / link drop. */

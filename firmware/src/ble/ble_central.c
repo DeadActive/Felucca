@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * BLE MIDI test: 2026 DEADACTIVE
- * Drum machine fork: 2026 DEADACTIVE */
+ * Drum machine fork: 2026 DEADACTIVE
+ * FM-Link: 2026 DEADACTIVE */
 /* BLE-MIDI central on the JieLi SDK's ble_op_* API (reference: SDK apps/common/ble/le_net_central.c), and (ROLE
  * DEVICE, ble_ui_role) a BLE-MIDI peripheral a host connects to (reference: le_trans_data.c; the GATT table in
  * ble_gatt.c). The state machine and the MIDI out queue at the top are host-tested (tests/ble/ble_central_test.c);
@@ -48,15 +49,20 @@ uint32_t ble_dev_step(int want, uint32_t s)
  * 16 bytes in an order its headers do not state, so both orders match. */
 static const uint8_t MIDI_CHAR_UUID[16] = {0x77, 0x72, 0xE5, 0xDB, 0x38, 0x68, 0x41, 0x12, 0xA1, 0xA9, 0xF2, 0x66,
                                            0x9D, 0x10, 0x6B, 0xF3};
-int ble_is_midi_char(const uint8_t u[16])
+/* the FM-Link characteristic F3110001-6E4C-4A5B-9C2D-1F3E5D7A9B0C (ble_gatt.c: another FM-1 in the device role) */
+static const uint8_t FML_CHAR_UUID[16] = {0xF3, 0x11, 0x00, 0x01, 0x6E, 0x4C, 0x4A, 0x5B, 0x9C, 0x2D, 0x1F, 0x3E,
+                                          0x5D, 0x7A, 0x9B, 0x0C};
+static int ble_uuid_is(const uint8_t u[16], const uint8_t ref[16])
 {
     uint32_t i, fwd = 1, rev = 1;
     for (i = 0; i < 16u; i++) {
-        fwd &= u[i] == MIDI_CHAR_UUID[i];
-        rev &= u[i] == MIDI_CHAR_UUID[15u - i];
+        fwd &= u[i] == ref[i];
+        rev &= u[i] == ref[15u - i];
     }
     return (int)(fwd | rev);
 }
+int ble_is_midi_char(const uint8_t u[16]) { return ble_uuid_is(u, MIDI_CHAR_UUID); }
+int ble_is_fml_char(const uint8_t u[16]) { return ble_uuid_is(u, FML_CHAR_UUID); }
 
 /* one monitor line for a USB-MIDI packet (cin | status << 8 | d1 << 16 | d2 << 24); 0 = no line (a SysEx start or
  * continuation: *sx counts its bytes, and the end packet prints them) */
@@ -334,6 +340,14 @@ static uint32_t err_code;
 static uint8_t att_ram[BLE_SDK_ATT_CTRL_BLOCK_SIZE + ATT_MTU + 512u] __attribute__((aligned(4)));
 static uint8_t search_ram[512] __attribute__((aligned(4)));
 static uint32_t ring[64], ring_h, ring_t, ring_lost;   /* BLE-MIDI as USB-MIDI packets, to the main loop */
+/* FM-Link (the core's bt_fml.c, fmlink.c): its messages in, each with the TIMER4 tick it came at (the offset between
+ * two FM-1s is measured from these), to the main loop (ble_service: core_fml_rx); out by ble_fml_send */
+static struct { uint32_t t; uint8_t len, b[20]; } fq[8];
+static uint32_t fq_h, fq_t, fq_lost, fml_in, fml_out;
+static uint16_t fml_handle;                         /* the central: the device's FM-Link characteristic (0: none, a
+                                                     * plain BLE-MIDI device) */
+static uint8_t fml_heard;                           /* the device role: the host wrote to FM-Link (it is an FM-1: it
+                                                     * takes FM-Link notifications) */
 
 uint32_t ble_state(void) { return st; }
 const char *ble_err(uint32_t *code) { *code = err_code; return err_text; }
@@ -347,6 +361,19 @@ static void ring_put(void *ctx, uint32_t pkt)
         ring[ring_h++ & 63u] = pkt;
     else
         ring_lost++;
+}
+static void fml_put(const uint8_t *p, uint32_t len)
+{
+    uint32_t t = fm1_ticks();                       /* (first: the time it came) */
+    if (!len || len > 20u || fq_h - fq_t >= 8u) {
+        fq_lost++;
+        return;
+    }
+    fq[fq_h & 7u].t = t;
+    fq[fq_h & 7u].len = (uint8_t)len;
+    memcpy(fq[fq_h & 7u].b, p, len);
+    fq_h++;
+    fml_in++;
 }
 int ble_midi_take(uint32_t *pkt)
 {
@@ -385,6 +412,8 @@ static void cbk_packet_handler(uint8_t type, uint16_t channel, uint8_t *packet, 
             memcpy(peer, &packet[8], 6);           /* (peer address type packet[7], its address packet[8..13]) */
             ble_midi_reset(&bm);
             att_set_ccc_config(BLE_GATT_MIDI_CCC, 0);   /* notifications off until this host turns them on */
+            att_set_ccc_config(BLE_GATT_FML_CCC, 0);
+            fml_heard = 0;
             ble_op_att_send_init(con_handle, att_ram, sizeof att_ram, ATT_MTU);
             set_err("", 0);
             ble_ev(EV_CONNECTED);
@@ -395,6 +424,7 @@ static void cbk_packet_handler(uint8_t type, uint16_t channel, uint8_t *packet, 
             break;
         }
         midi_handle = 0;
+        fml_handle = 0;
         ble_midi_reset(&bm);
         ble_op_att_send_init(con_handle, att_ram, sizeof att_ram, ATT_MTU);
         user_client_init(con_handle, search_ram, sizeof search_ram);
@@ -407,9 +437,13 @@ static void cbk_packet_handler(uint8_t type, uint16_t channel, uint8_t *packet, 
             set_err("DISCONNECTED", packet[5]);
         con_handle = 0;
         midi_handle = 0;
+        fml_handle = 0;
+        fml_heard = 0;
         ble_op_att_send_init(0, 0, 0, 0);
-        if (role_now)
+        if (role_now) {
             att_set_ccc_config(BLE_GATT_MIDI_CCC, 0);
+            att_set_ccc_config(BLE_GATT_FML_CCC, 0);
+        }
         ble_ev(EV_DISCONNECTED);                   /* (the device role: IDLE, then ble_dev advertises again) */
         break;
     default:
@@ -457,7 +491,7 @@ static uint16_t att_read_cb(uint16_t con, uint16_t handle, uint16_t offset, uint
             memcpy(buffer, BLE_GATT_NAME_STR + offset, n - offset < size ? n - offset : size);
         return (uint16_t)(n - offset);
     }
-    if (handle == BLE_GATT_MIDI_CCC) {
+    if (handle == BLE_GATT_MIDI_CCC || handle == BLE_GATT_FML_CCC) {
         if (buffer && size >= 2u) {
             v = att_get_ccc_config(handle);
             buffer[0] = (uint8_t)v;
@@ -465,15 +499,18 @@ static uint16_t att_read_cb(uint16_t con, uint16_t handle, uint16_t offset, uint
         }
         return 2;
     }
-    return 0;                                      /* the MIDI value: read gives no data (BLE-MIDI 1.0) */
+    return 0;                                      /* the MIDI value: read gives no data (BLE-MIDI 1.0); FM-Link's */
 }
 static int att_write_cb(uint16_t con, uint16_t handle, uint16_t mode, uint16_t offset, uint8_t *buffer, uint16_t size)
 {
     (void)con;
     (void)mode;
     (void)offset;
-    if (handle == BLE_GATT_MIDI_CCC && size) {
+    if ((handle == BLE_GATT_MIDI_CCC || handle == BLE_GATT_FML_CCC) && size) {
         att_set_ccc_config(handle, buffer[0]);     /* the host's notifications on / off */
+    } else if (handle == BLE_GATT_FML && (st == BLE_SUBSCRIBED || st == BLE_RECEIVING)) {
+        fml_heard = 1;                             /* FM-Link from the host (another FM-1) */
+        fml_put(buffer, size);
     } else if (handle == BLE_GATT_MIDI && (st == BLE_SUBSCRIBED || st == BLE_RECEIVING)) {
         ble_midi_parse(&bm, buffer, size, ring_put, 0);   /* BLE-MIDI from the host: as a central's notification */
         ble_ev(EV_NOTIFY);
@@ -507,6 +544,8 @@ void user_client_report_search_result(search_result_t *r)
     }
     if (!r->characteristic.uuid16 && ble_is_midi_char(r->characteristic.uuid128))
         midi_handle = r->characteristic.value_handle;
+    else if (!r->characteristic.uuid16 && ble_is_fml_char(r->characteristic.uuid128))
+        fml_handle = r->characteristic.value_handle;   /* (another FM-1: its notifications come once it is written to) */
 }
 
 void user_client_report_data_callback(att_data_report_t *d)
@@ -515,6 +554,9 @@ void user_client_report_data_callback(att_data_report_t *d)
         (st == BLE_SUBSCRIBED || st == BLE_RECEIVING)) {
         ble_midi_parse(&bm, d->blob, d->blob_length, ring_put, 0);
         ble_ev(EV_NOTIFY);
+    } else if (d->packet_type == BLE_SDK_GATT_EVENT_NOTIFICATION && fml_handle && d->value_handle == fml_handle &&
+               (st == BLE_SUBSCRIBED || st == BLE_RECEIVING)) {
+        fml_put(d->blob, d->blob_length);
     }
 }
 
@@ -635,6 +677,23 @@ static int ble_out_tx(const uint8_t *pkt, uint32_t len)   /* ble_out_drain's sen
            ble_op_att_send_data(midi_handle, (void *)pkt, len, BLE_SDK_ATT_OP_WRITE_WITHOUT_RESPOND);
 }
 static void ble_out_flush(void) { ble_out_drain(core_ms(), ble_out_tx); }   /* ble_service: MIDI out */
+/* one FM-Link message to the other FM-1 (main loop only): the central writes it, the device role notifies it (without
+ * the CCCD: the host's writes say it is an FM-1). 1 = sent; 0 = not linked to one, or no room (the engine sends again) */
+int ble_fml_send(const uint8_t *p, uint32_t len)
+{
+    uint32_t room = 0;
+    if (!ble_linked() || ble_op_att_get_remain(&room) || room < len)
+        return 0;
+    if (role_now) {
+        if ((!fml_heard && !att_get_ccc_config(BLE_GATT_FML_CCC)) ||
+            ble_op_att_send_data(BLE_GATT_FML, (void *)p, len, BLE_SDK_ATT_OP_NOTIFY))
+            return 0;
+    } else if (!fml_handle || ble_op_att_send_data(fml_handle, (void *)p, len, BLE_SDK_ATT_OP_WRITE_WITHOUT_RESPOND)) {
+        return 0;
+    }
+    fml_out++;
+    return 1;
+}
 
 /* ---- reconnecting and the Bluetooth page's entry points (ble_core.h ble_ui_*; the core's main loop). None of
  * them starts the stack: the page calls ble_user_start (gate 3). ---- */
@@ -896,6 +955,14 @@ void ble_status(void)                              /* console `ble` */
     o = put_u(put_s(o, " out_drops "), mo.drops);
     o = put_u(put_s(o, " in_drops "), core_ble_in_drops());
     o = put_u(put_s(o, " audio_late "), core_audio_late());
+    o = put_s(o, "\r\n");
+    *o = 0;
+    core_con_puts(b);
+    o = put_s(b, "  fm-link ");                   /* another FM-1: its characteristic found (the central) / written */
+    o = put_s(o, (role_now ? fml_heard : fml_handle != 0) ? "peer" : "none");
+    o = put_u(put_s(o, " in "), fml_in);
+    o = put_u(put_s(o, " out "), fml_out);
+    o = put_u(put_s(o, " lost "), fq_lost);
     o = put_s(o, "\r\n");
     *o = 0;
     core_con_puts(b);

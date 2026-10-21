@@ -66,4 +66,7 @@ void ble_service(void)                             /* the main loop (ed_service)
     while (ble_midi_take(&pkt))                    /* to the core while linked (after core_ble_link(1)); a drop's */
         if (ble_linked())                          /* leftovers are discarded (the core heard core_ble_link(0)) */
             core_ble_midi_in(pkt);
+    for (; fq_t != fq_h; fq_t++)                   /* FM-Link in, with the tick each came at (the same while linked) */
+        if (ble_linked())
+            core_fml_rx(fq[fq_t & 7u].b, fq[fq_t & 7u].len, fq[fq_t & 7u].t);
 }

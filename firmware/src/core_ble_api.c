@@ -58,6 +58,7 @@ void core_con_puts(const char *s)
 #endif
 }
 void core_ble_midi_in(uint32_t pkt) { bt_midi_in(pkt); }
+void core_fml_rx(const uint8_t *p, uint32_t len, uint32_t t) { bt_fml_rx(p, len, t); }
 uint32_t core_ble_in_drops(void) { return bt_in.drops; }
 void core_ble_link(int up)
 {
@@ -72,5 +73,6 @@ static void bt_service(void)
     ble_service();
     bt_page_auto();                             /* AUTOSTART: once, a few seconds after a clean boot (bt_page.c) */
     bt_midi_frame();                            /* MIDI mode: what the keys and the sequencer sent, to the device */
+    bt_fml_frame();                             /* FM-Link: the role from CLK, its messages to the other FM-1 */
     smc_frame();                                /* the SMC-Mixer's LEDs and fader positions */
 }

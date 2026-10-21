@@ -47,7 +47,8 @@ static const char *const N_PRIO[] = {"LAST", "LOW", "HIGH"};
 static const char *const N_ALLOC[] = {"ROT", "REUSE"};
 static const char *const N_ORDER[] = {"NOTE", "PLAY"};
 #if FELUCCA_BLE
-static const char *const N_CLOCK[] = {"INT", "USB", "TRS", "BLE"};   /* (3: the Bluetooth MIDI device, bt_midi.c) */
+static const char *const N_CLOCK[] = {"INT", "USB", "TRS", "BLE", "LINK"};   /* (3: the Bluetooth MIDI device, bt_midi.c;
+                                                                              * 4: FM-Link's follower, bt_fml.c) */
 #else
 static const char *const N_CLOCK[] = {"INT", "USB", "TRS"};
 #endif

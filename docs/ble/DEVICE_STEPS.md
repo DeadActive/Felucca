@@ -57,6 +57,12 @@ reboot: `fatal` 1 a library assert, 2 a library reset request, 3 a BT task's sta
     twice). A: ROLE HOST, BLUETOOTH ON, SCAN, pick Felucca FM-1, CLK INT. Expected: PLAY on A starts B; B follows A's
     BPM (turn it); STOP on A stops B; after a few minutes they are still together (by ear, a pattern of 16ths on
     both). `ble` on A shows `out` counting up and `out_drops 0`.
+8d. **FM-Link** (two units with this build, linked as in 8c). B: CLK `LINK`. Expected: within a few seconds
+    `FM-LINK: FOLLOWING` on B and `FM-LINK: LEADING` on A; `fml` on B shows `fml peer 1`, `fml offset_ok 1`. PLAY on A:
+    both start together (about 80 ms after the press); by ear the same 16ths on both, no flamming, for several minutes;
+    turn A's BPM: B follows. PLAY on B: `FOLLOWING LINK`, nothing else. STOP on A stops both. With A playing, switch B
+    off and on and link again: B starts on A's next bar. Copy `fml` and `ble` from both (`fm-link peer`, `in`, `out`,
+    `lost`). Report whether it sounds tighter than 8c.
 9. **Under load.** A pattern plays while connected with faders and knobs moving. Expected: no audible glitch;
    `ble` shows `audio_late 0`, `errs 0`, `out_drops 0`, `in_drops 0`. Copy the `ble` output (`loop last / max`,
    `longest BT task run`, `heap high`, each task's `stack free`, `irq_lowered 0`).
@@ -84,6 +90,7 @@ reboot: `fatal` 1 a library assert, 2 a library reset request, 3 a BT task's sta
 | 8a autostart | | | |
 | 8b device role | | | |
 | 8c two FM-1s | | | |
+| 8d FM-Link | | | |
 | 9 under load | | | |
 | 10 saving | | | |
 | 11 UBOOT, BT on | | | |

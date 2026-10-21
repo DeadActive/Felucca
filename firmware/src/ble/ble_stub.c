@@ -12,6 +12,7 @@ void ble_status(void) {}
 int ble_started(void) { return 0; }
 int ble_midi_send(const uint8_t *m, uint32_t n) { (void)m; (void)n; return 0; }
 uint32_t ble_midi_room(void) { return 0; }
+int ble_fml_send(const uint8_t *p, uint32_t len) { (void)p; (void)len; return 0; }
 uint32_t ble_ui_state(void) { return BLE_ST_OFF; }
 const char *ble_ui_err(uint32_t *code) { *code = 0; return ""; }
 uint32_t ble_ui_scan_left(void) { return 0; }

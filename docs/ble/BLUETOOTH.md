@@ -90,7 +90,32 @@ follows a clock itself (CLK USB, TRS or BLE) sends none, so clock never loops.
 
 Each FM-1 holds one Bluetooth link, so this is two units, not a chain. Bluetooth delivers in bursts (a 15 ms
 connection interval), so a pulse can land a few ms early or late; the follower steps by counting pulses (no drift)
-and smooths its tempo, and it starts one link delay (some tens of ms) after the master.
+and smooths its tempo, and it starts one link delay (some tens of ms) after the master. For a tighter link between
+two FM-1s, use FM-Link (below).
+
+## Two FM-1s in time: FM-Link
+
+FM-Link sends no clock pulses. The two FM-1s measure the difference between their clocks (each way's fastest
+packets over the last few seconds, so Bluetooth's bursts do not count) and share a timeline: the leader says when it
+started, at what BPM. The follower runs its own steady clock at that BPM and keeps its beats on the leader's by a
+sample more or less a block. In the simulations (`tests/fmlink_test.c`, `tests/bt_fml_test.c`: crystals 55 ppm
+apart, 15 ms connection events, lost packets) the two stay within about 1 ms, for minutes. Not yet measured on two
+FM-1s.
+
+1. Link the two as for clock out: one ROLE DEVICE, the other ROLE HOST with it picked (either may lead). FM-Link
+   finds the other FM-1 by itself, beside BLE-MIDI.
+2. **The leader:** CLK **INT**. **The follower:** CLK **LINK** (CLOCK page: tap HOME twice; KNOB 3). Once they hear
+   each other the screen says `FM-LINK: LEADING` / `FM-LINK: FOLLOWING`.
+3. PLAY on the leader starts both together, about 80 ms after the press. If the leader is already playing when the
+   follower joins (connects, reconnects or is set to LINK), the follower starts on the leader's next bar. The
+   follower always plays from its pattern's first step, so patterns whose lengths divide a bar stay in step.
+4. The leader's BPM is the follower's (it follows a change at once); STOP on the leader stops both. PLAY / STOP on a
+   linked follower do nothing but say `FOLLOWING LINK`.
+5. If the link drops, the follower plays on at the last BPM; when it comes back it pulls back into time (or, if it
+   drifted more than 50 ms, rejoins on the next bar). CLK LINK with no FM-Link peer plays as INT.
+
+The leader still sends MIDI clock in MIDI mode (for a computer or a CLK BLE follower); the CLK LINK follower ignores
+it and sends none. Only clock and transport travel for now, not notes.
 
 ## MODE
 
@@ -137,7 +162,9 @@ A project saved with CLK BLE opens in the plain build with CLK TRS (its last sou
 ## The console
 
 The USB serial console (MENU > SYSTEM > USB SERIAL ON) has `ble` (state, counters, the heap, the loop period, each
-task's free stack, the device list), and `ble start`, `ble scan`, `ble list`, `ble connect N`, `ble stop`.
+task's free stack, the device list, FM-Link's packets), and `ble start`, `ble scan`, `ble list`, `ble connect N`,
+`ble stop`. `fml` shows FM-Link: the role, the peer, the clock offset and whether it is known, the leader's state and BPM,
+the follower's beat.
 
 ## What keeps the FM-1 safe
 

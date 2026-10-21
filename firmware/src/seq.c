@@ -52,6 +52,8 @@ static volatile uint8_t transport_req;   /* 1 start, 2 stop, 3 restart (from the
 #if FELUCCA_BLE
 static void bt_midi_out_isr(uint32_t pkt); /* bt_midi.c: what goes to USB MIDI out, to the BLE device too */
 static void bt_clock_block(uint32_t n, int restart);   /* bt_midi.c: MIDI clock out, the FM-1 on CLK INT */
+#define CLK_LINK 4u                       /* G_CLOCK LINK: FM-Link's follower (bt_fml.c) */
+static void bt_fml_block(uint32_t n, uint32_t *seq_n);   /* bt_fml.c: FM-Link, CLK INT (leads) / LINK (follows) */
 #endif
 static volatile uint8_t panic_req;       /* bit per track: release every sounding note (preset / engine change) */
 static volatile uint8_t midi_hint;       /* MIDI IN played track n - 1, which is not the selected one (the UI says so) */
@@ -1313,6 +1315,11 @@ static void events_block(uint32_t n)
         midi_clock.mode = (uint8_t)clock_mode;
         midi_beat_samples = 0;
     }
+#if FELUCCA_BLE
+    if (clock_mode == CLK_LINK)
+        clock_mode = 0;                               /* FM-Link's follower: its own clock, held on the leader's */
+    bt_fml_block(n, &seq_n);                          /* (bt_fml.c: PLAY / STOP as the link wants, the advance) */
+#endif
     if (cin_left && !clock_mode)
         cin_block(n);
 #if FELUCCA_BLE
