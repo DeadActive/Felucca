@@ -397,7 +397,7 @@ static uint8_t search_ram[512] __attribute__((aligned(4)));
 static uint32_t ring[64], ring_h, ring_t, ring_lost;   /* BLE-MIDI as USB-MIDI packets, to the main loop */
 /* FM-Link (the core's bt_fml.c, fmlink.c): its messages in, each with the TIMER4 tick it came at (the offset between
  * two FM-1s is measured from these), to the main loop (ble_service: core_fml_rx); out by ble_fml_send */
-static struct { uint32_t t; uint8_t len, b[20]; } fq[8];
+static struct { uint32_t t; uint8_t len, b[20]; } fq[16];   /* (8 overflowed with two links: `lost`, 2026-10-22) */
 static uint32_t fq_h, fq_t, fq_lost, fml_in, fml_out;
 static uint16_t fml_handle;                         /* the central: the device's FM-Link characteristic (0: none, a
                                                      * plain BLE-MIDI device) */
@@ -420,13 +420,13 @@ static void ring_put(void *ctx, uint32_t pkt)
 static void fml_put(const uint8_t *p, uint32_t len)
 {
     uint32_t t = fm1_ticks();                       /* (first: the time it came) */
-    if (!len || len > 20u || fq_h - fq_t >= 8u) {
+    if (!len || len > 20u || fq_h - fq_t >= 16u) {
         fq_lost++;
         return;
     }
-    fq[fq_h & 7u].t = t;
-    fq[fq_h & 7u].len = (uint8_t)len;
-    memcpy(fq[fq_h & 7u].b, p, len);
+    fq[fq_h & 15u].t = t;
+    fq[fq_h & 15u].len = (uint8_t)len;
+    memcpy(fq[fq_h & 15u].b, p, len);
     fq_h++;
     fml_in++;
 }
