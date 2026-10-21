@@ -11,11 +11,11 @@
 #error "build with -DFELUCCA_BLE=1"
 #endif
 #include "ble_ui_stub.h"                            /* ble_core.h, the connected name (conn_name / conn_up) */
-static uint8_t sent[64][3];
-static uint32_t sent_n[64], nsent, room;
+static uint8_t sent[512][3];
+static uint32_t sent_n[512], nsent, room;
 int ble_midi_send(const uint8_t *m, uint32_t n)
 {
-    if (!room || nsent >= 64u)
+    if (!room || nsent >= 512u)
         return 0;
     memcpy(sent[nsent], m, n);
     sent_n[nsent++] = n;
@@ -296,6 +296,113 @@ static void test_out(void)
     ok("MIDI out: the key up sends its note-off", nsent == 2u && (sent[1][0] & 0xF0u) == 0x80u && sent[1][1] == sent[0][1]);
 }
 
+/* MIDI clock out: the FM-1 on its own tempo (CLK INT) is the master of the BLE device it is linked to in MIDI mode */
+static uint32_t count_rt(uint8_t st)
+{
+    uint32_t i, n = 0;
+    for (i = 0; i < nsent; i++)
+        n += sent_n[i] == 1u && sent[i][0] == st;
+    return n;
+}
+static void run_samples(uint32_t samples)        /* blocks of 256 (the rest in one), the out queue drained each */
+{
+    while (samples) {
+        uint32_t k = samples > 256u ? 256u : samples;
+        events_block(k);
+        bt_midi_frame();
+        samples -= k;
+    }
+}
+static void test_clock_out(void)
+{
+    uint32_t beat, i;
+    fresh(BT_MODE_MIDI);
+    link_to("Felucca FM-1");
+    room = 64;
+    song.g[G_CLOCK] = 0;
+    events_block(256);
+    bt_midi_frame();
+    ok("clock out: nothing while stopped", !nsent);
+    beat = beat_samples();
+    transport_req = 1;                               /* PLAY */
+    events_block(256);
+    bt_midi_frame();
+    ok("clock out: PLAY sends Start, then the first clock pulse (the first beat)",
+       nsent >= 2u && sent_n[0] == 1u && sent[0][0] == 0xFAu && sent_n[1] == 1u && sent[1][0] == 0xF8u);
+    nsent = 0;
+    room = 1000;
+    run_samples(4u * beat - 256u);                   /* up to four beats after the start */
+    ok("clock out: 24 pulses a beat, from the audio's own samples (four beats: 96 in all)",
+       count_rt(0xF8u) + 1u == 96u || count_rt(0xF8u) + 1u == 97u);
+    ok("clock out: only clock while it plays (no Start again, no Stop)", count_rt(0xFAu) == 0u && count_rt(0xFCu) == 0u);
+    nsent = 0;
+    room = 1000;
+    transport_req = 3;                               /* GLO + PLAY: from the top without stopping */
+    events_block(256);
+    bt_midi_frame();
+    ok("clock out: GLO + PLAY (from the top) sends Start again", count_rt(0xFAu) == 1u && count_rt(0xFCu) == 0u);
+    nsent = 0;
+    transport_req = 2;                               /* STOP */
+    events_block(256);
+    bt_midi_frame();
+    run_samples(beat);
+    ok("clock out: STOP sends Stop, then no more pulses", count_rt(0xFCu) == 1u && count_rt(0xF8u) == 0u);
+    /* not the master, not linked, the SMC layout: no clock */
+    for (i = 0; i < 3u; i++) {
+        fresh(i == 2u ? BT_MODE_SMC : BT_MODE_MIDI);
+        if (i != 1u)
+            link_to(i == 2u ? "SMC-Mixer" : "Felucca FM-1");
+        room = 1000;
+        song.g[G_CLOCK] = i == 0u ? 3 : 0;           /* 0: following BLE itself; 1: no link; 2: the SMC-Mixer */
+        transport_req = 1;
+        run_samples(2u * beat);
+        ok(i == 0u ? "clock out: none while the FM-1 follows a clock itself (CLK BLE: no loop)" :
+           i == 1u ? "clock out: none without a link" : "clock out: none to the SMC-Mixer (its DAW layout)",
+           !count_rt(0xFAu) && !count_rt(0xF8u));
+    }
+    song.g[G_CLOCK] = 0;
+}
+
+/* the theory check: one FM-1 the master at 97 BPM, its clock as it leaves (each message at the sample it was made
+ * in), played into a second FM-1 on CLK BLE: it starts and follows the same tempo */
+static void test_two_units(void)
+{
+    static uint32_t at[400], pkt[400];
+    uint32_t n = 0, pos = 0, beat_master, i, k;
+    fresh(BT_MODE_MIDI);
+    link_to("Felucca FM-1");
+    song.g[G_CLOCK] = 0;
+    song.g[G_BPM] = 97;
+    beat_master = beat_samples();
+    transport_req = 1;
+    while (pos < 8u * beat_master && n < 400u) {      /* eight beats, the master's out ring read after each block */
+        events_block(256);
+        while (bt_out_r != bt_out_w && n < 400u) {
+            at[n] = pos;
+            pkt[n++] = bt_out_q[bt_out_r++ % BT_OUT_Q];
+        }
+        pos += 256u;
+    }
+    ok("two units: the master sent Start and 8 beats of clock", n >= 190u && (pkt[0] >> 8 & 0xFFu) == 0xFAu);
+    fresh(BT_MODE_MIDI);                             /* the second FM-1: CLK BLE, its own tempo elsewhere */
+    link_to("Felucca FM-1");
+    song.g[G_BPM] = 140;
+    song.g[G_CLOCK] = 3;
+    events_block(256);
+    for (i = 0, k = 0; i < n; i++) {                 /* each message when it was sent (the link's own delay aside) */
+        fm1_ms = 1000u + (uint32_t)((uint64_t)at[i] * 1000u / FS);
+        bt_midi_in(pkt[i]);
+        if (i + 1u == n || at[i + 1u] != at[i])
+            events_block(256), k++;
+    }
+    ok("two units: the follower is playing", song.playing);
+    printf("      (master %u samples a beat, follower %u)\n", (unsigned)beat_master, (unsigned)beat_samples());
+    ok("two units: the follower's tempo is the master's (within 1 %)",
+       beat_samples() * 100u > beat_master * 99u && beat_samples() * 100u < beat_master * 101u);
+    song.g[G_CLOCK] = 0;
+    song.g[G_BPM] = 120;
+}
+
 static void test_learn(void)
 {
     fresh(BT_MODE_MIDI);
@@ -373,6 +480,8 @@ int main(void)
     test_clock();
     test_mode();
     test_out();
+    test_clock_out();
+    test_two_units();
     test_learn();
     test_link_drop();
     printf(fails ? "bt_midi: %d FAILED\n" : "bt_midi: all checks passed\n", fails);

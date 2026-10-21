@@ -268,3 +268,8 @@ file. The SMC mapping values come from the user's own `smc-seq` project. The BLE
   advertising (ended first), as the SDK's examples switch (`ble_stack_gatt_role`, the handlers registered again); the
   central's tested start is unchanged (the server's table is registered the first time DEVICE is applied). 6,340 B
   of flash, 60 B of RAM: 37,152 B of the slot stay free.
+- **Clock out over BLE** (the user, 2026-10-21, "for fast theory check ... connect multiple fm-1 together"): an FM-1 on
+  CLK INT, linked in MIDI mode, sends Start (PLAY, GLO + PLAY), 24 pulses a beat from the audio's samples and Stop, from
+  `seq.c events_block` (`bt_clock_block`, the audio ISR) through the out ring; none on CLK USB / TRS / BLE (no loop),
+  none to the SMC layout. Supersedes "no clock is sent" (section 8, choice 8). No setting yet. Host-tested end to end:
+  a master at 97 BPM drives a follower on CLK BLE (it starts, its tempo within 1 %). One link a unit: two FM-1s.

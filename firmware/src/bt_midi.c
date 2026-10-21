@@ -8,6 +8,10 @@
  *   mod wheel) also go to the connected device. Their callers run in the audio interrupt or with interrupts off, so
  *   they queue here and the main loop hands the queue to the BLE unit. No realtime bytes (24 a beat would fill the
  *   BLE unit's 64-message queue).
+ * Clock out: while the FM-1 runs on its own tempo (CLK INT) and is linked in MIDI mode it is the master of the BLE
+ *   device (another FM-1 with CLK BLE, a computer): Start on PLAY (and on GLO + PLAY from the top), 24 clock pulses a
+ *   beat counted from the audio's own samples (so they never drift from its steps), Stop on STOP. A unit following a
+ *   clock itself (CLK USB / TRS / BLE) sends none: no loop. bt_clock_block, from seq.c events_block (the audio ISR).
  * The link down: what the device held is released (CC 64 = 0 and CC 123 on each channel it played), as a pulled cable
  *   would otherwise leave its notes sounding. */
 #define BT_MIDI_C 1
@@ -106,13 +110,9 @@ static void bt_midi_in(uint32_t pkt)
         bt_in.held |= (uint16_t)(1u << (st & 15u));  /* a note-on or the pedal down: this channel has something held */
 }
 
-/* a channel voice message the FM-1 sent to USB MIDI out (seq.c key_on / key_off, ui_input.c sel_play), for the BLE
- * device too. From the audio interrupt or with interrupts off: one producer at a time. Full: dropped and counted */
-static void bt_midi_out_isr(uint32_t pkt)
+static void bt_out_push(uint32_t pkt)               /* the out ring (one producer at a time: the audio ISR, or with
+                                                     * interrupts off). Full: dropped and counted */
 {
-    uint32_t cin = pkt & 15u;
-    if (!bt_in.out_on || cin < 8u || cin > 0xEu)
-        return;
     if (bt_out_w - bt_out_r >= BT_OUT_Q) {
         bt_in.out_drops++;
         return;
@@ -120,6 +120,42 @@ static void bt_midi_out_isr(uint32_t pkt)
     bt_out_q[bt_out_w % BT_OUT_Q] = pkt;
     RING_PUBLISH();
     bt_out_w++;
+}
+
+/* clock out (the audio ISR, every block after the transport's requests): restart = GLO + PLAY's from the top */
+static struct { uint8_t run; uint32_t acc; } bt_clk;  /* acc: samples since the last pulse, x 24 */
+static void bt_clock_block(uint32_t n, int restart)
+{
+    uint32_t beat;
+    int run = song.playing && !song.g[G_CLOCK] && bt_in.out_on;
+    if (!run) {
+        if (bt_clk.run && bt_in.out_on && !song.playing)
+            bt_out_push(0xFu | 0xFCu << 8);         /* Stop */
+        bt_clk.run = 0;
+        return;
+    }
+    if (!bt_clk.run || restart) {
+        bt_out_push(0xFu | 0xFAu << 8);             /* Start, then the first beat's pulse */
+        bt_out_push(0xFu | 0xF8u << 8);
+        bt_clk.run = 1;
+        bt_clk.acc = 0;
+    }
+    bt_clk.acc += n * 24u;
+    beat = beat_samples();                          /* samples a beat at the FM-1's tempo (fx.c) */
+    while (beat && bt_clk.acc >= beat) {
+        bt_clk.acc -= beat;
+        bt_out_push(0xFu | 0xF8u << 8);
+    }
+}
+
+/* a channel voice message the FM-1 sent to USB MIDI out (seq.c key_on / key_off, ui_input.c sel_play), for the BLE
+ * device too. From the audio interrupt or with interrupts off: one producer at a time. Full: dropped and counted */
+static void bt_midi_out_isr(uint32_t pkt)
+{
+    uint32_t cin = pkt & 15u;
+    if (!bt_in.out_on || cin < 8u || cin > 0xEu)
+        return;
+    bt_out_push(pkt);
 }
 
 /* the main loop (core_ble_api.c bt_service): the releases owed after a dropped link, then the out queue to the BLE
@@ -139,7 +175,7 @@ static void bt_midi_frame(void)
     while (bt_out_r != bt_out_w && ble_midi_room()) {
         uint32_t pkt = bt_out_q[bt_out_r % BT_OUT_Q], cin = pkt & 15u;
         uint8_t m[3] = {(uint8_t)(pkt >> 8), (uint8_t)(pkt >> 16), (uint8_t)(pkt >> 24)};
-        if (!ble_midi_send(m, cin == 0xCu || cin == 0xDu ? 2u : 3u))
+        if (!ble_midi_send(m, cin == 0xFu ? 1u : cin == 0xCu || cin == 0xDu ? 2u : 3u))
             break;
         bt_out_r++;
     }

@@ -53,6 +53,10 @@ reboot: `fatal` 1 a library assert, 2 a library reset request, 3 a BT task's sta
     port: the FM-1's keys come in, notes from the Mac play the FM-1 (MIDI IN CH1-4: channel 1 plays track 1); with CLK
     BLE the Mac's clock runs the transport. Disconnect on the Mac: `WAITING FOR A HOST` again. ROLE HOST: scanning and
     the SMC-Mixer work as before (step 4). `ble` shows `state ADVERTISING` while waiting.
+8c. **Two FM-1s in sync** (two units with this build). B: ROLE DEVICE, BLUETOOTH ON, CLK BLE (CLOCK page: tap HOME
+    twice). A: ROLE HOST, BLUETOOTH ON, SCAN, pick Felucca FM-1, CLK INT. Expected: PLAY on A starts B; B follows A's
+    BPM (turn it); STOP on A stops B; after a few minutes they are still together (by ear, a pattern of 16ths on
+    both). `ble` on A shows `out` counting up and `out_drops 0`.
 9. **Under load.** A pattern plays while connected with faders and knobs moving. Expected: no audible glitch;
    `ble` shows `audio_late 0`, `errs 0`, `out_drops 0`, `in_drops 0`. Copy the `ble` output (`loop last / max`,
    `longest BT task run`, `heap high`, each task's `stack free`, `irq_lowered 0`).
@@ -79,6 +83,7 @@ reboot: `fatal` 1 a library assert, 2 a library reset request, 3 a BT task's sta
 | 8 reconnect | | | |
 | 8a autostart | | | |
 | 8b device role | | | |
+| 8c two FM-1s | | | |
 | 9 under load | | | |
 | 10 saving | | | |
 | 11 UBOOT, BT on | | | |

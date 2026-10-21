@@ -75,12 +75,30 @@ listens (it subscribes on its own). No pairing is needed; a host that asks for i
 power-off. When the host disconnects the FM-1 advertises again. Changing ROLE ends a scan, a link or the advertising
 first, then switches.
 
+## Two FM-1s in sync (clock out)
+
+While an FM-1 runs on its own tempo (CLK INT) and is linked over Bluetooth in MIDI mode, it sends MIDI clock to the
+other end: Start on PLAY (and on GLO + PLAY, from the top), 24 clock pulses a beat counted from its own audio samples
+(they never drift from its steps), Stop on STOP. The other end follows with CLK BLE. Nothing to turn on; an FM-1 that
+follows a clock itself (CLK USB, TRS or BLE) sends none, so clock never loops.
+
+1. **The follower:** ROLE DEVICE, BLUETOOTH ON; on the CLOCK page (tap HOME twice) CLK **BLE**.
+2. **The master:** ROLE HOST, BLUETOOTH ON, SCAN, pick **Felucca FM-1** (it is remembered: AUTOSTART on both and they
+   find each other at every power-on). CLK stays INT.
+3. PLAY on the master starts both; its BPM is theirs; STOP stops both. The keys of each still play the other's
+   tracks by channel (MIDI IN on each decides which).
+
+Each FM-1 holds one Bluetooth link, so this is two units, not a chain. Bluetooth delivers in bursts (a 15 ms
+connection interval), so a pulse can land a few ms early or late; the follower steps by counting pulses (no drift)
+and smooths its tempo, and it starts one link delay (some tens of ms) after the master.
+
 ## MODE
 
 - **MIDI:** the device is a third MIDI input beside USB and TRS: notes by channel (MENU > MIDI > MIDI IN), pitch
   bend, sustain, CCs, the modulation matrix's sources, MIDI LEARN (GLO + D4, turn a knob, move the controller's CC). The CLOCK page's CLK (tap HOME twice from HOME: MIXER, then CLOCK; KNOB 3) has a fourth source, **BLE**:
   the device's Start / Stop / clock run the transport. The FM-1's keys (on the track's channel) and the mod wheel
-  (SELECT as MODW) are sent to the device too. No clock is sent to it. When the link drops, the notes and the pedal
+  (SELECT as MODW) are sent to the device too, and, while the FM-1 runs on its own tempo (CLK INT), its clock:
+  Start on PLAY, 24 pulses a beat, Stop on STOP (below). When the link drops, the notes and the pedal
   the device held are released.
 - **SMC DAW:** the M-VAVE SMC-Mixer in its DAW (Mackie Control) mode, below.
 - **AUTO** (default): SMC DAW when the connected device's name starts with `SMC`, else MIDI.
