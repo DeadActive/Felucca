@@ -21,7 +21,8 @@ bld() {                                         # a build, retried (up to 5) on 
 W=build/gate5/nobt
 rm -rf build/gate5
 mkdir -p "$W"
-git ls-files -z | rsync -a --from0 --files-from=- ./ "$W/"     # the tracked files as they are in the working tree
+git ls-files -z --recurse-submodules | rsync -a --from0 --files-from=- ./ "$W/"   # the tracked files as they are in the
+                                                                                     # working tree (1.6.1: firmware/engines too)
 for p in $BT; do
     [ -e "$W/$p" ] || { echo "gate 5: $p is not in the tree (update tools/check_default_build.sh's list)"; exit 1; }
     rm -rf "${W:?}/$p"

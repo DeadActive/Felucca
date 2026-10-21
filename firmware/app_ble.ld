@@ -12,7 +12,8 @@
  * FELUCCA memory map.
  * Code + constants execute in place from XIP (app.bin offset 0 = 0x02000120).
  * 0x01C00000..0x01C06000 holds .ram_text (code that must run while the flash
- * is busy: the flash driver); 0x01C06000..0x01C08000 stays for RAM-run debug.
+ * is busy: the flash driver; here also the radio calibration), then .c1_text (the second core's waiting loop,
+ * hal/fm1_cpu1.h); 0x01C06000..0x01C08000 stays for RAM-run debug.
  * RAM  : .data/.bss (72 KiB): what the audio and key-scan interrupts touch, small variables
  * POOL : big zero-initialised buffers (FX lines, canvases, the parts' engine memory, the main loop's work
  *        buffers), section .pool. The same SRAM: the RAM / POOL boundary only splits the budget (1.5: 96 / 336
@@ -53,6 +54,8 @@ SECTIONS
         . = ALIGN(4); _rt_end = .;
     } > RAMTEXT AT > XIP
     _rt_load = LOADADDR(.ram_text);
+    .c1_text : { _c1_start = .; KEEP(*(.c1_text*)) . = ALIGN(4); _c1_end = .; } > RAMTEXT AT > XIP
+    _c1_load = LOADADDR(.c1_text);
     .data : { . = ALIGN(4); _data_start = .; *(.data*) *(.sdata*) *(.*_data) . = ALIGN(4); _data_end = .; } > RAM AT > XIP
     _data_load = LOADADDR(.data);
     .bss (NOLOAD) : {
