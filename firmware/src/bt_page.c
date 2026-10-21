@@ -1,10 +1,12 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * BLE MIDI: 2026 DEADACTIVE (after Hortator's bt_page.c) */
+ * BLE MIDI: 2026 DEADACTIVE (after Hortator's bt_page.c)
+ * FM-Link: 2026 DEADACTIVE */
 /* FELUCCA_BLE (felucca.c includes it after ble/ble_core.h, bt_set.c and bt_midi.c; ui_menu.c declares its entry
  * points): the Bluetooth page, MENU > SYSTEM > BLUETOOTH, ui.menu BT_MENU. A state line (and the last error), then
  * the rows BLUETOOTH, AUTOSTART, ROLE, MODE, DEVICE, SCAN and up to 8 devices found (BLE-MIDI ones first), two in
  * view. ROLE DEVICE: the FM-1 is the BLE-MIDI device a host (a computer, a tablet) connects to; DEVICE, SCAN and the
- * list are not shown then. As in the menu: PRESETS moves the cursor (it wraps), any of KNOB 1..4 changes the row, OCT+ acts on it, OCT- goes back to
+ * list are not shown then. ROLE HOST + LINK: HOST, and beside the device a second link to another FM-1 (found by its
+ * name), FM-Link only (the state line: LINKED FM-1, or FM-1 + the device). As in the menu: PRESETS moves the cursor (it wraps), any of KNOB 1..4 changes the row, OCT+ acts on it, OCT- goes back to
  * the menu's rows, HOME closes the menu.
  * BLUETOOTH ON is the only call of ble_user_start in the core (gate 3: tools/check_ble_boot.py TRIGGERS has
  * bt_page_on); Bluetooth is off at every power-on and ON is not saved, unless AUTOSTART is ON: then bt_page_auto
@@ -23,6 +25,7 @@
 #define BT_DY 182                                   /* the device rows, 17 px, 1 px apart */
 #define BT_DH 17
 static const char *const BT_MODE_N[4] = {"AUTO", "SMC DAW", "MIDI", "FM-LINK"};
+static const char *const BT_ROLE_N[3] = {"HOST", "HOST + LINK", "DEVICE"};   /* ROLE: role, link (bt_set.c) */
 static uint32_t bt_role(void) { bt_set_t s; bt_set_get(&s); return s.role; }   /* 1: ROLE DEVICE */
 static uint32_t bt_rows(void) { return bt_role() ? BT_DEV_ROWS : BT_ROWS; }   /* the rows above the devices */
 static struct {
@@ -90,7 +93,11 @@ static void bt_state_text(char *o)                  /* the state line (40 B) */
             raw[23] = 0, bt_name(t, raw, sizeof t);
         else
             bt_dev_text(t);
+        if (btp.on && ble_ui_link_state() == 2u)   /* both links: FM-1 first (a long name is cut, not the FM-1) */
+            n = 0, str_cpy(o, "FM-1 + ", 40), n = str_len(o);
         str_cpy(o + n, t, 40 - n);
+    } else if (btp.on && st == BLE_ST_IDLE && ble_ui_link_state() == 2u) {
+        str_cpy(o, "LINKED FM-1", 40);             /* FM-Link's own link only (ROLE HOST + LINK) */
     }
 }
 
@@ -162,6 +169,7 @@ __attribute__((noinline)) static void bt_page_on(void)
     btp.on = 1;
     bt_set_get(&s);
     ble_ui_role(s.role);                            /* (applied once the stack is up and idle) */
+    ble_ui_link(s.link && !s.role);
     ble_ui_target(s.addr, s.type);
     ble_ui_want(1);
     if (ble_ui_state() == BLE_ST_OFF)
@@ -242,7 +250,7 @@ static void bt_page_close(void)                     /* OCT- or HOME: reconnectin
 
 static void bt_page_input(uint32_t oct)             /* oct: ui_input.c oct_taps (bit 0 OCT-, bit 1 OCT+) */
 {
-    uint32_t ok = (oct >> 1) & 1u, rows, st = ble_ui_state(), k;
+    uint32_t ok = (oct >> 1) & 1u, rows, st = ble_ui_state(), k, v;
     int32_t s;
     bt_set_t set;
     if (oct & 1u) {
@@ -274,14 +282,20 @@ static void bt_page_input(uint32_t oct)             /* oct: ui_input.c oct_taps 
             bt_set_put(&set);
         }
         break;
-    case 2:                                         /* ROLE: a knob right DEVICE, left HOST; OCT+ toggles; saved */
+    case 2:                                         /* ROLE: HOST, HOST + LINK, DEVICE: a knob steps and stops at the
+                                                     * ends; OCT+ wraps; saved */
         bt_set_get(&set);
-        k = s > 0 ? 1u : s < 0 ? 0u : ok ? !set.role : set.role;
-        if (k != set.role) {
-            set.role = (uint8_t)k;
+        v = set.role ? 2u : set.link ? 1u : 0u;
+        k = s > 0 ? (v < 2u ? v + 1u : 2u) : s < 0 ? (v ? v - 1u : 0u) : ok ? (v + 1u) % 3u : v;
+        if (k != v) {
+            set.role = (uint8_t)(k == 2u);
+            set.link = (uint8_t)(k == 1u);
             bt_set_put(&set);
-            ble_ui_role((int)k);                    /* (the BLE unit ends a scan, a link or advertising, then switches) */
-            btp.n = btp.top = 0;
+            ble_ui_link(set.link);
+            if (set.role != (v == 2u)) {
+                ble_ui_role(set.role);              /* (the BLE unit ends a scan, a link or advertising, then switches) */
+                btp.n = btp.top = 0;
+            }
         }
         break;
     case 3:                                         /* MODE: a knob steps and stops at the ends; OCT+ wraps */
@@ -414,7 +428,7 @@ static void bt_page_draw(void)
         if (!pass) {
             bt_row(0, "BLUETOOTH", btp.on ? "ON" : "OFF", 1);
             bt_row(1, "AUTOSTART", set.autostart ? "ON" : "OFF", 1);
-            bt_row(2, "ROLE", set.role ? "DEVICE" : "HOST", 1);
+            bt_row(2, "ROLE", BT_ROLE_N[set.role ? 2 : set.link ? 1 : 0], 1);
         } else {
             bt_row(3, "MODE", BT_MODE_N[set.mode], 1);
             if (!set.role) {

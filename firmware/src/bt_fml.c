@@ -65,7 +65,7 @@ static void bt_fml_frame(void)
         bt_fml.msg_follow = 0;
         ui_message("FOLLOWING LINK");                /* (a linked follower's own PLAY / STOP: the leader's count) */
     }
-    if (!bt_in.up) {
+    if (!ble_fml_ready()) {                          /* (FM-Link's own link, or the device's) */
         bt_fo.len = 0;
         return;
     }

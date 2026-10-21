@@ -53,6 +53,11 @@ void ble_ui_pause(int on) { bs.pauses++; bs.pause = on; }
 static int bs_role = -1;                             /* the last ble_ui_role (-1 none) */
 void ble_ui_role(int device) { bs_role = device; }
 uint32_t ble_ui_role_now(void) { return bs_role > 0; }
+static int bs_link = -1;                             /* the last ble_ui_link (-1 none) */
+static uint32_t bs_link_state;                       /* ble_ui_link_state, as the test sets it */
+void ble_ui_link(int on) { bs_link = on; }
+uint32_t ble_ui_link_state(void) { return bs_link_state; }
+int ble_fml_ready(void) { return conn_up; }          /* (a link up: the test's) */
 void ble_user_start(void)
 {
     bs.starts++;

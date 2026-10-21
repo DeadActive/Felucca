@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #define BLE_CENTRAL_STATE_ONLY 1
+#define BLE_MONITOR 1                                /* (ble_midi_text: host only) */
 #include <string.h>
 static int link_up, link_down;                      /* core_ble_link's calls (the core's side, counted) */
 void core_ble_link(int up) { if (up) link_up++; else link_down++; }
@@ -332,6 +333,54 @@ int main(void)
         ble_ev(EV_CONN_FAIL);
         ble_watch(&a, 1200);
         CHECK(link_up == 1 && link_down == 1 && a.rest_ms == 1200u, "watch: a failed connect: rest, no link calls");
+    }
+    {   /* FM-Link's own link (ROLE HOST + LINK): one scan, connect, discovery at a time beside the device's link */
+        ble_lnk_t l;
+        const uint32_t T = 100000u;                  /* now; rest_ms 0: rested */
+        memset(&l, 0, sizeof l);
+        l.want = 1;
+        CHECK(ble_lnk_step(&l, BLE_IDLE, 0, 0, 0, T) == BLA_SCAN, "link: wanted, nothing listed, the device idle -> its own scan");
+        CHECK(ble_lnk_step(&l, BLE_RECEIVING, 0, 0, 0, T) == BLA_SCAN, "link: beside a linked device too");
+        CHECK(ble_lnk_step(&l, BLE_IDLE, 1, 0, 0, T) == BLA_NONE, "link: the device scans by itself -> its lists serve");
+        CHECK(ble_lnk_step(&l, BLE_SCANNING, 0, 0, 0, T) == BLA_NONE && ble_lnk_step(&l, BLE_CONNECTING, 0, 0, 0, T) == BLA_NONE &&
+              ble_lnk_step(&l, BLE_DISCOVERING, 0, 0, 0, T) == BLA_NONE, "link: never while the device scans, connects, discovers");
+        CHECK(ble_lnk_step(&l, BLE_IDLE, 0, 1, 1, T) == BLA_NONE, "link: never while the page's list is in use");
+        CHECK(ble_lnk_step(&l, BLE_IDLE, 1, 0, 1, T) == BLA_CONNECT, "link: an FM-1 listed -> connect (from the device's list too)");
+        l.tried = 1;
+        CHECK(ble_lnk_step(&l, BLE_IDLE, 0, 0, 1, T) == BLA_SCAN, "link: tried on this list -> a new list first");
+        CHECK(ble_lnk_step(&l, BLE_IDLE, 1, 0, 1, T) == BLA_NONE, "link: tried, the device scanning by itself -> its next list");
+        l.tried = 0;
+        l.rest_ms = T - 500u;
+        CHECK(ble_lnk_step(&l, BLE_IDLE, 0, 0, 0, T) == BLA_NONE && ble_lnk_step(&l, BLE_IDLE, 0, 0, 1, T) == BLA_NONE,
+              "link: 2 s of rest after a scan, a failed connect or a drop");
+        l.found = 1;
+        CHECK(ble_lnk_step(&l, BLE_IDLE, 0, 0, 1, T) == BLA_CONNECT, "link: its scan ended on an FM-1 -> connect without the rest");
+        l.want = 0;
+        CHECK(ble_lnk_step(&l, BLE_IDLE, 0, 0, 1, T) == BLA_NONE, "link: not wanted -> nothing");
+        memset(&l, 0, sizeof l);
+        l.want = 1;
+        l.st = BL_SCANNING;
+        l.deadline_ms = T + 5000u;
+        CHECK(ble_lnk_step(&l, BLE_RECEIVING, 0, 0, 0, T) == BLA_NONE, "link scanning: nothing yet -> on");
+        CHECK(ble_lnk_step(&l, BLE_RECEIVING, 0, 0, 1, T) == BLA_STOP_SCAN, "link scanning: an FM-1 listed -> stop (then connect)");
+        CHECK(ble_lnk_step(&l, BLE_RECEIVING, 0, 1, 0, T) == BLA_STOP_SCAN, "link scanning: the page's scan -> stop");
+        CHECK(ble_lnk_step(&l, BLE_RECEIVING, 0, 0, 0, T + 5000u) == BLA_STOP_SCAN, "link scanning: 10 s -> stop");
+        l.st = BL_CONNECTING;
+        CHECK(ble_lnk_step(&l, BLE_IDLE, 0, 0, 0, T) == BLA_NONE && ble_lnk_step(&l, BLE_IDLE, 0, 0, 0, T + 5000u) == BLA_CANCEL,
+              "link connecting: given up at its deadline");
+        l.st = BL_DISCOVERING;
+        CHECK(ble_lnk_step(&l, BLE_IDLE, 0, 0, 0, T + 5000u) == BLA_DROP, "link discovering: given up at its deadline");
+        l.dropping = 1;
+        CHECK(ble_lnk_step(&l, BLE_IDLE, 0, 0, 0, T + 5000u) == BLA_NONE, "link: a disconnect asked once only");
+        l.dropping = 0;
+        l.st = BL_UP;
+        CHECK(ble_lnk_step(&l, BLE_SCANNING, 0, 1, 0, T) == BLA_NONE, "link up: stays up whatever the device's link does");
+        l.want = 0;
+        CHECK(ble_lnk_step(&l, BLE_IDLE, 0, 0, 0, T) == BLA_DROP, "link up, not wanted (OFF, ROLE) -> dropped");
+        l.st = BL_CONNECTING;
+        CHECK(ble_lnk_step(&l, BLE_IDLE, 0, 0, 0, T) == BLA_CANCEL, "link connecting, not wanted -> cancelled");
+        CHECK(ble_lnk_busy(&l) && (l.st = BL_UP, !ble_lnk_busy(&l)) && (l.st = BL_IDLE, !ble_lnk_busy(&l)),
+              "link busy (the device's scans and connects wait): scanning, connecting, discovering only");
     }
     printf(fails ? "ble_central: %d FAILED\n" : "ble_central: all checks passed\n", fails);
     return fails != 0;

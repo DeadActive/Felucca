@@ -33,7 +33,7 @@ acts on it, OCT- goes back to the menu, HOME closes the menu.
 | --- | --- | --- |
 | BLUETOOTH | right ON, left OFF | ON / OFF |
 | AUTOSTART | right ON, left OFF (saved) | ON / OFF |
-| ROLE | right DEVICE, left HOST (saved) | HOST / DEVICE |
+| ROLE | HOST, HOST + LINK, DEVICE (stops at the ends; saved) | the next one (wraps) |
 | MODE | AUTO, SMC DAW, MIDI, FM-LINK (stops at the ends) | the next one (wraps) |
 | DEVICE | left: forget the remembered device (a link drops) | - |
 | SCAN | - | a 10 s scan (Bluetooth ON only) |
@@ -83,8 +83,9 @@ other end: Start on PLAY (and on GLO + PLAY, from the top), 24 clock pulses a be
 follows a clock itself (CLK USB, TRS or BLE) sends none, so clock never loops.
 
 1. **The follower:** ROLE DEVICE, BLUETOOTH ON; on the CLOCK page (tap HOME twice) CLK **BLE**.
-2. **The master:** ROLE HOST, BLUETOOTH ON, SCAN, pick **Felucca FM-1** (it is remembered: AUTOSTART on both and they
-   find each other at every power-on). CLK stays INT.
+2. **The master:** ROLE HOST, BLUETOOTH ON, SCAN, pick **Felucca FM-1**. CLK stays INT. (An FM-1 takes a new
+   Bluetooth address each time Bluetooth starts, so a remembered FM-1 is not found again after it restarts: SCAN and
+   pick it again, or use ROLE HOST + LINK, below, which finds it by its name.)
 3. PLAY on the master starts both; its BPM is theirs; STOP stops both. The keys of each still play the other's
    tracks by channel (MIDI IN on each decides which).
 
@@ -117,6 +118,20 @@ FM-1s.
 FM-Link works in every MODE. In MIDI mode the leader also sends MIDI clock (for a computer or a CLK BLE follower; the
 CLK LINK follower ignores it) and each FM-1's keys play the other; MODE **FM-LINK** on both keeps the link to FM-Link
 alone. Only clock and transport travel for now, not notes.
+
+## Two links at once: ROLE HOST + LINK
+
+In ROLE **HOST + LINK** the FM-1 holds two links as the host: the device on the DEVICE row (a controller, the
+SMC-Mixer; MODE applies to it as always) and, beside it, another FM-1 for FM-Link only (no MIDI on that link). The
+other FM-1 is found by its name, **Felucca FM-1**, nothing to pick: it only has to be in ROLE DEVICE with BLUETOOTH ON.
+The FM-1 looks for it in the background (scans, connects, again after a lost link), taking turns with the device's
+own reconnecting, and leaves the list alone while the page's SCAN is in use.
+
+- The state line: `LINKED FM-1` with the FM-1 only, `FM-1 + <device>` with both.
+- FM-Link goes over the FM-1's link (CLK INT / LINK as above); the controller plays the FM-1 as before.
+- Not yet tried on the hardware: the two links share the radio (15 ms connection interval each; scanning beside a
+  link uses 8 ms in 24). `ble` shows `fm-link own link`, `link_state` (0 idle, 1 scanning, 2 connecting,
+  3 discovering, 4 up) and the heap's high-water mark (the heap grew by 4 KB for the second link).
 
 ## MODE
 

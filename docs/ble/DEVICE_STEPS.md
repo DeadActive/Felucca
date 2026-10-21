@@ -64,6 +64,12 @@ reboot: `fatal` 1 a library assert, 2 a library reset request, 3 a BT task's sta
     off and on and link again: B starts on A's next bar. Copy `fml` and `ble` from both (`fm-link peer`, `in`, `out`,
     `lost`). Report whether it sounds tighter than 8c. Then MODE `FM-LINK` on both: still in time, but A's keys no
     longer play B (and B's not A).
+8e. **Two links: HOST + LINK** (two FM-1s with this build and a BLE-MIDI controller, the SMC-Mixer say). B: ROLE
+    DEVICE, BLUETOOTH ON, CLK LINK. A: ROLE `HOST + LINK`, the controller picked as DEVICE, CLK INT. Expected: A's
+    state line `FM-1 + SMC-Mixer` within some seconds (`LINKED FM-1` first if the controller is off); the controller
+    works on A as in steps 4-7 while A and B play in time (8d). Switch the controller off and on: it comes back, the
+    FM-1 link stays. Switch B off and on: A finds it again by itself. Copy `ble` on A (`fm-link own link`,
+    `link_state 4`, `heap high`, `failed allocations 0`, `audio_late 0`).
 9. **Under load.** A pattern plays while connected with faders and knobs moving. Expected: no audible glitch;
    `ble` shows `audio_late 0`, `errs 0`, `out_drops 0`, `in_drops 0`. Copy the `ble` output (`loop last / max`,
    `longest BT task run`, `heap high`, each task's `stack free`, `irq_lowered 0`).
@@ -92,6 +98,7 @@ reboot: `fatal` 1 a library assert, 2 a library reset request, 3 a BT task's sta
 | 8b device role | | | |
 | 8c two FM-1s | | | |
 | 8d FM-Link | | | |
+| 8e two links | | | |
 | 9 under load | | | |
 | 10 saving | | | |
 | 11 UBOOT, BT on | | | |

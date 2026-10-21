@@ -13,6 +13,7 @@ int ble_started(void) { return 0; }
 int ble_midi_send(const uint8_t *m, uint32_t n) { (void)m; (void)n; return 0; }
 uint32_t ble_midi_room(void) { return 0; }
 int ble_fml_send(const uint8_t *p, uint32_t len) { (void)p; (void)len; return 0; }
+int ble_fml_ready(void) { return 0; }
 uint32_t ble_ui_state(void) { return BLE_ST_OFF; }
 const char *ble_ui_err(uint32_t *code) { *code = 0; return ""; }
 uint32_t ble_ui_scan_left(void) { return 0; }
@@ -25,3 +26,5 @@ void ble_ui_pause(int on) { (void)on; }
 int ble_ui_conn_name(char out[24]) { (void)out; return 0; }
 void ble_ui_role(int device) { (void)device; }
 uint32_t ble_ui_role_now(void) { return 0; }
+void ble_ui_link(int on) { (void)on; }
+uint32_t ble_ui_link_state(void) { return 0; }

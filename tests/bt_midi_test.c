@@ -114,10 +114,15 @@ static void test_settings(void)
     bt_set_put(&s);
     bt_set_get(&g);
     ok("settings: ROLE DEVICE round-trips (flags bit 4)", g.role && g.autostart && favorites.factory[13][30] == 0x19u);
-    favorites.factory[13][30] |= 0x20u;              /* a flag this firmware does not know */
+    s.link = 1;                                      /* ROLE HOST + LINK: bit 5 */
+    s.role = 0;
+    bt_set_put(&s);
+    bt_set_get(&g);
+    ok("settings: LINK round-trips (flags bit 5)", g.link && !g.role && g.autostart && (favorites.factory[13][30] & 0x20u));
+    favorites.factory[13][30] |= 0x40u;              /* a flag this firmware does not know */
     favorites.factory[13][31] = bt_set_sum(&favorites.factory[13][24]);
     bt_set_get(&g);
-    ok("settings: an unknown flag bit is no device, MODE AUTO, AUTOSTART OFF, ROLE HOST", !g.has && g.mode == BT_MODE_AUTO && !g.autostart && !g.role);
+    ok("settings: an unknown flag bit is no device, MODE AUTO, AUTOSTART OFF, ROLE HOST", !g.has && g.mode == BT_MODE_AUTO && !g.autostart && !g.role && !g.link);
     memset(&s, 0, sizeof s);
     s.mode = BT_MODE_MIDI;
     bt_set_put(&s);

@@ -35,8 +35,10 @@ static __attribute__((unused)) void ble_stage(uint32_t s)
 #include "ble/ble_vm.c"
 #include "ble/ble_port.c"
 /* the BT libraries' heap, in .pool: the measured high-water + 25 % (budget, user-approved 2026-10-09): 10824 B on the
- * FM-1 started, connected to the SMC-Mixer and receiving (docs/ble/DEVICE_STEPS.md), so 13530, rounded up to 512 B */
-#define BLE_HEAP_BYTES 13824u
+ * FM-1 started, connected to the SMC-Mixer and receiving (docs/ble/DEVICE_STEPS.md), so 13530, rounded up to 512 B;
+ * + 4 KB for a second link at once (ROLE HOST + LINK; the libraries' multi-link buffers, an estimate from their
+ * counts: `ble`'s heap high is the measure) */
+#define BLE_HEAP_BYTES 17920u
 static uint8_t ble_heap[BLE_HEAP_BYTES] __attribute__((section(".pool")));
 static uint8_t ble_on;
 int ble_started(void) { return ble_on; }

@@ -94,7 +94,20 @@ working beside it (a Mac connects to a DEVICE FM-1 as before).
   division (`fml_beats`). A leader whose sequencer started by other means (a count-in's end, SONG) announces it.
 - Gates as before; gate 2c's lists change only if the update path's code does.
 
-## 8. Not in this step
+## 8. Two links at once (added 2026-10-22, the user: "both connection to multiple devices in host mode")
+
+- The JieLi libraries we link carry multi-link support; `sdkcfg/app_config.h` switches it on as `multi_demo` does:
+  two links as the central, one as the peripheral (`TRANS_MULTI_BLE_*`). Measured: +8 B of flash for the libraries.
+  Every send names its link (`ble_op_multi_att_*`), CCCDs are per link (`multi_att_*_ccc_config`), both GATT roles are
+  registered at start (`ble_stack_gatt_role(2)`).
+- ROLE gains **HOST + LINK** (settings bit 5): beside the DEVICE row's link, a second link to another FM-1, found by
+  its scanned name (an FM-1's address is random at each Bluetooth start, so none is remembered), FM-Link only. Its
+  scans, connects and discovery take turns with the device link's (`ble_lnk_step`, host-tested); scans beside a link
+  are duty-cycled (8 ms in 24). The BT heap +4 KB (an estimate: `ble`'s heap high is the measure).
+- Room: the console's text in the BLE unit is built for size and Hortator's unused MIDI monitor text is left out of
+  the firmware: 33,140 B of the slot free after all this (32,840 before).
+
+## 9. Not in this step
 
 Notes over FM-Link (later: events stamped a little in the future, played at the same sample on both); more than two
 units; a manual offset trim.

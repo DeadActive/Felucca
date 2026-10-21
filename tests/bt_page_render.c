@@ -56,6 +56,7 @@ static void bt_setup(int s)
     memset(&btp, 0, sizeof btp);
     memset(conn_name, 0, sizeof conn_name);
     conn_up = 0;
+    bs_link_state = 0;
     song.rec = 0;
     ui.menu = BT_MENU;
     ui.menu_sel = MI_BT;
@@ -82,13 +83,19 @@ static void bt_setup(int s)
         dev(8, 0x99, 1, 0, -101, "NINTH (NOT LISTED)");
         remember(0x11, BT_MODE_AUTO);
         break;
-    case BS_CONNECTED:
-        btp.on = 1; bs.state = BLE_ST_RECEIVING; btp.sel = 4; conn_up = 1;
+    case BS_CONNECTED:                               /* ROLE HOST + LINK (under the cursor), both links up */
+        btp.on = 1; bs.state = BLE_ST_RECEIVING; btp.sel = 2; conn_up = 1; bs_link_state = 2;
         strcpy(conn_name, "SMC-Mixer");
         remember(0x11, BT_MODE_SMC);
+        {
+            bt_set_t d;
+            bt_set_get(&d);
+            d.link = 1;
+            bt_set_put(&d);
+        }
         break;
     case BS_CONNECTED_LONG:
-        btp.on = 1; bs.state = BLE_ST_SUBSCRIBED; btp.sel = 0; conn_up = 1;
+        btp.on = 1; bs.state = BLE_ST_SUBSCRIBED; btp.sel = 0; conn_up = 1; bs_link_state = 2;   /* (+ FM-1: clipped) */
         memcpy(conn_name, ODD, 23);
         remember(0x22, BT_MODE_MIDI);
         dev(0, 0x22, 0, 1, -61, ODD);

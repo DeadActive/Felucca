@@ -68,6 +68,7 @@ uint32_t ble_midi_room(void);                          /* the queue's free entri
 /* FM-Link out (main loop only): one message (at most 20 bytes) to the other FM-1 on its own characteristic (ble_gatt.c);
  * 1 = sent, 0 = not linked to an FM-1 or no room now */
 int ble_fml_send(const uint8_t *p, uint32_t len);
+int ble_fml_ready(void);                               /* a link FM-Link may go on (FM-Link's own, or the device's) */
 /* the Bluetooth page (main loop only). None of these starts the stack: the page's BLUETOOTH ON calls ble_user_start
  * (gate 3). States = ble_central.c's. Reconnecting (spec 3): want on + a target -> connect when the target is in the
  * scan list, else an auto scan, 2 s after the last scan end / link drop. */
@@ -89,4 +90,7 @@ int ble_ui_conn_name(char out[24]);        /* SUBSCRIBED / RECEIVING: 1 and the 
 void ble_ui_role(int device);              /* ROLE: 0 HOST (scan, connect: the central), 1 DEVICE (advertise: a host
                                             * connects to the FM-1). Applied once no scan, link or advertising is on */
 uint32_t ble_ui_role_now(void);            /* the role in effect */
+void ble_ui_link(int on);                  /* ROLE HOST + LINK: beside the device's link, a second one to another FM-1
+                                            * (found by its name), FM-Link only */
+uint32_t ble_ui_link_state(void);          /* FM-Link's own link: 0 off, 1 looking for an FM-1, 2 linked */
 #endif

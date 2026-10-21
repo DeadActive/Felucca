@@ -381,7 +381,26 @@ static void test_role(void)
     ok("the third row is ROLE", btp.sel == 2u);
     k1(1);
     s = saved();
-    ok("ROLE, a knob right: DEVICE, saved, handed to the BLE unit at once", s.role == 1u && bs_role == 1);
+    ok("ROLE, a knob right: HOST + LINK, saved, the link handed to the BLE unit, the role still HOST",
+       s.link && !s.role && bs_link == 1 && bs_role == 0);
+    ok("ROLE HOST + LINK: the row says so", str_eq(BT_ROLE_N[s.role ? 2 : s.link ? 1 : 0], "HOST + LINK"));
+    bs_link_state = 2;
+    bs.state = BLE_ST_IDLE;
+    text_is_("FM-Link's link up, no device linked: the state line says LINKED FM-1", "LINKED FM-1");
+    bs.state = BLE_ST_RECEIVING;
+    conn_up = 1;
+    strcpy(conn_name, "SMC-Mixer");
+    text_is_("both links: FM-1 + the device's name", "FM-1 + SMC-Mixer");
+    conn_up = 0;
+    bs_link_state = 0;
+    bs.state = BLE_ST_IDLE;
+    row(2);
+    k1(1);
+    s = saved();
+    ok("ROLE, a knob right again: DEVICE, saved, handed to the BLE unit at once (the link off)",
+       s.role == 1u && !s.link && bs_role == 1 && bs_link == 0);
+    k1(1);
+    ok("ROLE stops at DEVICE", saved().role == 1u);
     ok("ROLE DEVICE: no device list", btp.n == 0u);
     turn(EN_PRESET, 1); frame();
     ok("ROLE DEVICE: the cursor goes on to MODE", btp.sel == 3u);
@@ -393,7 +412,7 @@ static void test_role(void)
     text_is_("ROLE DEVICE: the state line while advertising", "WAITING FOR A HOST");
     row(2);
     press(B_OCTUP);
-    ok("ROLE, OCT+ toggles: HOST again, saved, handed over", !saved().role && bs_role == 0);
+    ok("ROLE, OCT+ wraps: HOST again, saved, handed over", !saved().role && !saved().link && bs_role == 0);
     frame();
     ok("ROLE HOST: the list is back", btp.n == 1u);
     /* the saved role is what BLUETOOTH ON (and AUTOSTART) start in */
