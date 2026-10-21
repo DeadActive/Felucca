@@ -145,6 +145,8 @@ int power_is_poweroff_post(void) { return 0; }
 static void ble_fatal(uint32_t why)
 {
     ble_diag.fatal = why;
+    ble_diag.heap_high = heap_high;               /* (ble_os.c's, as they were then: ble_service copies them only */
+    ble_diag.alloc_fails = alloc_fails;           /* between runs; read, not called: interrupts may be off) */
     core_audio_stop();
     core_reboot();                                        /* (uptime > 30 s: not counted by the boot guard) */
 }
