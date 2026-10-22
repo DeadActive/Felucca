@@ -111,6 +111,7 @@ static void bt_service(void);    /* core_ble_api.c: the BT stack's slice and the
 #include "smc.c"                 /* the SMC-Mixer DAW layout: decode, actions, LEDs, fader pickup */
 #include "bt_midi.c"             /* MIDI mode: in (the input ring, source 3) and out; SMC DAW mode: to smc.c */
 #include "bt_fml.c"              /* FM-Link: two FM-1s in time (fmlink.c), CLK INT leads, CLK LINK follows */
+#include "bt_devs.c"             /* the saved devices: the list, each link's device by the user's pick order */
 #include "bt_page.c"             /* the Bluetooth page (MENU > SYSTEM > BLUETOOTH, ui_menu.c ui.menu 4) */
 #endif
 

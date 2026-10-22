@@ -523,6 +523,8 @@ if [ -f build/gen/ui_fonts.h ]; then
     run "Bluetooth page: the row in MENU > SYSTEM, the cursor, ON / OFF, MODE, DEVICE, SCAN, a pick, the state line" "$OUT/bt_page_test"
     $CC -w -DFELUCCA_BLE=1 -Ibuild/gen -Ifirmware/src -Itests -o "$OUT/smc_test" tests/smc_test.c -lm
     run "SMC-Mixer DAW layout: faders with pickup, knobs, MUTE SOLO REC SELECT, the transport, the LEDs, the mixer gone" "$OUT/smc_test"
+    $CC -w -DFELUCCA_BLE=1 -Ibuild/gen -Ifirmware/src -Itests -o "$OUT/bt_devs_test" tests/bt_devs_test.c -lm
+    run "saved Bluetooth devices: the list in the favourites' spare bytes, pick order, full list, each link's device, the 30 s grace" "$OUT/bt_devs_test"
     $CC -w -DFELUCCA_BLE=1 -Ibuild/gen -Ifirmware/src -Itests -o "$OUT/bt_fml_test" tests/bt_fml_test.c -lm
     run "FM-Link's glue through the sequencer: CLK INT leads, LINK follows; PLAY, STOP, BPM, its own PLAY held, no link" "$OUT/bt_fml_test"
     $CC -w -DFELUCCA_BLE=1 -Ibuild/gen -Ifirmware/src -Itests -o "$OUT/bt_page_render" tests/bt_page_render.c -lm

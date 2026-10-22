@@ -72,6 +72,7 @@ static void bt_service(void)
 {
     ble_service();
     bt_page_auto();                             /* AUTOSTART: once, a few seconds after a clean boot (bt_page.c) */
+    bt_devs_frame();                            /* the saved devices: each link's target, the scan wanted */
     bt_midi_frame();                            /* MIDI mode: what the keys and the sequencer sent, to the device */
     bt_fml_frame();                             /* FM-Link: the role from CLK, its messages to the other FM-1 */
     smc_frame();                                /* the SMC-Mixer's LEDs and fader positions */
