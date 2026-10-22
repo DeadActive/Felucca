@@ -2,6 +2,7 @@
 
 Date: 2026-10-22. Branch `ble` (the Bluetooth build of Felucca, `FELUCCA_BLE=1`). Bluetooth MIDI / FM-Link: 2026
 DEADACTIVE. Talked through with the user in chat on 2026-10-22; the page layout was picked from mockups (option A).
+Approved by the user on 2026-10-22 ("implement plan, if not fit, drop bluetooth icon").
 
 ## 1. Why
 
@@ -158,7 +159,8 @@ On the top bar of every screen that has it (`ui_draw.c draw_head`), left of the 
 - Gates of the Bluetooth build as now (`tools/build.py`): the loader pin, the update path (gates 2a-2c), no BT
   start-up at boot (gate 3), RAM code, the plain build byte-identical without the Bluetooth files (gate 5).
 - Room: 33,076 B of the app slot free (keep ≥ 32 KB, the user's rule; asked whether it may go to 30 KB if the feature
-  does not fit otherwise, the user said **"try"**: fit within 32 KB if possible, 30 KB is the floor); RAM .data+.bss 69,484 of 73,728 B (keep
+  does not fit otherwise, the user said **"try"**: fit within 32 KB if possible, 30 KB is the floor; the user, on
+  approving this design: **"if not fit, drop bluetooth icon"**: the top bar icon (5.6) is the first thing to go); RAM .data+.bss 69,484 of 73,728 B (keep
   ≥ 4 KB spare: upstream's gate); `.pool` 360,240 of 368,640 B (keep ≥ 8 KB spare: upstream's gate). The saved list
   must fit in these.
 - The saved list cannot live in the settings record (`persist_t`): its spare bytes are nearly all taken and its format
