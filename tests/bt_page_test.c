@@ -105,8 +105,10 @@ static void test_menu_row(void)
     ok("BLUETOOTH is an action row (no value), as INFO and ABOUT", !menu_valued(MI_BT) && MI_BT >= MI_VALUES);
     fresh();
     ok("OCT+ on the row opens the page", ui.menu == BT_MENU && btp.sel == 0u);
+    ok("page_scan: the page open (HOST) wants a scan", bt_dv.page == 1u);
     press(B_OCTDN);
     ok("OCT- goes back to the menu's rows, on BLUETOOTH", ui.menu == 1u && ui.menu_sel == MI_BT);
+    ok("page_scan: closed -> no more", bt_dv.page == 0u);
     press(B_OCTUP);
     press(B_OCTDN);
     ui.menu_sel = MI_INFO;
@@ -208,13 +210,13 @@ static void test_add_flow(void)
     press(B_OCTUP);
     ok("add_flow: OCT+ on ADD -> the list of nearby devices not saved, BLE-MIDI first", btp.add && btp.an == 2u &&
        !memcmp(btp.adev[0].addr, F1, 6) && !memcmp(btp.adev[1].addr, A2, 6));
-    ok("add_flow: the list wants a scan", bt_dv.page == 1u);
+    ok("add_flow: the page (and its list) want a scan", bt_dv.page == 1u);
     ok("no_drop_on_add: opening it touches no link's target", bh.targets[0] + bh.targets[1] == targets &&
        bh.slot[0].st == BLE_LS_UP);
     press(B_OCTUP);                                 /* the FM-1, first */
     ok("add_flow: OCT+ on one -> saved first (an FM-1 by its name), back on the page", !btp.add &&
        bt_devs_get(0, &d) && !memcmp(d.addr, F1, 6) && d.kind == BT_KIND_FM1 && bt_devs_n() == 2u);
-    ok("add_flow: the page's scan ends", bt_dv.page == 0u);
+    ok("page_scan: back on the page its scan goes on (ON / NEAR / AWAY true there)", bt_dv.page == 1u);
     row(bt_page_rows() - 1u);
     press(B_OCTUP);
     press(B_OCTDN);

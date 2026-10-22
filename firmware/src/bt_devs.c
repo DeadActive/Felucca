@@ -5,9 +5,11 @@
  * in the user's pick order (ADD A DEVICE, OCT+ "use now": to the top; connecting by itself never reorders), kept with
  * their names over power-off. Each frame the host's two links get their targets: for each kind the first saved device
  * that is around (seen by a scan in the last BT_AROUND_MS) or linked; a device that dropped keeps its link's claim for
- * BT_GRACE_MS (the user: "connect to mixer"), so no stand-in takes its place while it may still come back.
- *   Stored in the settings record's favourites table, in bytes no favourite uses: entry i in favorites.factory[i][8..31]
- * (presets 64..255 of engines that have at most 12): [0..5] the address, [6] flags (bit 0 a random address, bit 1 an
+ * BT_GRACE_MS (the user: "connect to mixer"), so no stand-in takes its place while it may still come back; none around:
+ * the first saved device of the kind (its link scans for it, in windows, for as long as Bluetooth is on).
+ *   Stored in the settings record's favourites table, in bytes no favourite uses: entry i in favorites.factory[r][8..31],
+ * r = 0, 2, 3 .. 8 (presets 64..255 of engines that have at most 12; not row 1, the retired DIGITAL's, which every
+ * settings load clears: settings_persist.c): [0..5] the address, [6] flags (bit 0 a random address, bit 1 an
  * FM-1, bit 7 used), [7] the XOR of the other 23 bytes ^ 0x5A, [8..23] the name (NUL-padded). The plain build keeps
  * those bytes as saved (bt_set.c's rule). A change is saved with the settings (settings_save). Main loop only.
  *   And this FM-1's own Bluetooth address (bt_mac, core_ble_mac: ble_start), so other FM-1s can save it: made once (a
@@ -24,7 +26,8 @@ static struct {
     uint32_t claim_ms[2];
     uint8_t page;                                   /* the page's list is open: scan (bt_devs_page) */
 } bt_dv;
-#define bt_dev_rec(i) (&favorites.factory[i][8])
+static const uint8_t BT_DEV_ROW[BT_NDEV] = {0, 2, 3, 4, 5, 6, 7, 8};
+#define bt_dev_rec(i) (&favorites.factory[BT_DEV_ROW[i]][8])
 
 static uint8_t bt_dev_sum(const uint8_t *r)
 {
@@ -169,7 +172,7 @@ static void bt_devs_frame(void)
     static const uint8_t Z[6];
     bt_dev_t l[BT_NDEV];
     uint8_t around[BT_NDEV];
-    uint32_t n = bt_devs_all(l), i, kind, scan = bt_dv.page;
+    uint32_t n = bt_devs_all(l), i, kind, scan = bt_dv.page ? 2u : 0u;   /* (2: the page's, continuous) */
     for (i = 0; i < n; i++)
         around[i] = (uint8_t)bt_dev_around(&l[i]);
     for (kind = 0; kind < 2u; kind++) {
@@ -194,11 +197,14 @@ static void bt_devs_frame(void)
                 linked = (int)i;
         }
         c = bt_devs_choose(kind, around, linked, fm1_ms);
+        if (c < 0)
+            c = first;                             /* (none around: scan for the first) */
         if (c >= 0)
             ble_ui_slot_target(kind, l[c].addr, l[c].type);
         else
             ble_ui_slot_target(kind, Z, 0);
-        scan |= up && linked != first;             /* (on a lower one: look for the first) */
+        if (up && linked != first && !scan)
+            scan = 1;                              /* (on a lower one: look for the first, in windows) */
     }
     ble_ui_scan_want((int)scan);
 }

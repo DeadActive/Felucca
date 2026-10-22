@@ -265,7 +265,8 @@ static void ble_out_drain(uint32_t now_ms, int (*tx)(const uint8_t *pkt, uint32_
  * beside them (docs/superpowers/specs/2026-10-22-bt-devices-design.md). One decision per ble_service pass
  * (ble_host_step), applied by ble_host (the glue). One connect or discovery at a time, never beside a scan; a scan
  * runs beside links, never drops one ---- */
-enum { HS_IDLE, HS_CONNECTING, HS_DISCOVERING, HS_UP };
+enum { HS_IDLE, HS_CONNECTING, HS_DISCOVERING, HS_UP, HS_CANCELLING };   /* (CANCELLING: a cancelled connect's
+                                                    * completion awaited: busy, shown as IDLE) */
 enum { BH_NONE, BH_SCAN_ON, BH_SCAN_OFF, BH_CONNECT, BH_CANCEL, BH_DROP };
 typedef struct {
     uint8_t st;                                     /* HS_* */
@@ -281,7 +282,8 @@ typedef struct {
 typedef struct {
     ble_hslot_t s[2];
     uint8_t want;                                   /* BLUETOOTH ON, the host role, the stack up */
-    uint8_t scan_on, scan_want;                     /* scanning; the core wants a scan (the page, a better device) */
+    uint8_t scan_on, scan_want;                     /* scanning; the core wants a continuous scan (the page) */
+    uint8_t scan_bg;                                /* .. or a background one, in windows (a better device) */
     uint32_t scan_until, scan_rest;                 /* a background scan's window end; its rest's end */
 } ble_host_t;
 static int ble_due(uint32_t now, uint32_t at) { return (int32_t)(now - at) >= 0; }
@@ -299,7 +301,7 @@ uint32_t ble_host_step(const ble_host_t *h, uint32_t now_ms, uint32_t *slot)
         if (!s->dropping && ((s->st == HS_DISCOVERING && (off || ble_due(now_ms, s->deadline_ms))) ||
                              (s->st == HS_UP && off)))
             return BH_DROP;
-        busy |= s->st == HS_CONNECTING || (s->st == HS_DISCOVERING && !s->dropping);
+        busy |= s->st == HS_CONNECTING || s->st == HS_CANCELLING || (s->st == HS_DISCOVERING && !s->dropping);
     }
     if (busy)
         return h->scan_on ? BH_SCAN_OFF : BH_NONE;
@@ -311,7 +313,7 @@ uint32_t ble_host_step(const ble_host_t *h, uint32_t now_ms, uint32_t *slot)
         }
         unlisted |= s->st == HS_IDLE && s->target && (!s->listed || s->tried);
     }
-    need = h->want && (h->scan_want || unlisted);
+    need = h->want && (h->scan_want || h->scan_bg || unlisted);
     if (h->scan_on)
         return !need || (!h->scan_want && ble_due(now_ms, h->scan_until)) ? BH_SCAN_OFF : BH_NONE;
     return need && (h->scan_want || ble_due(now_ms, h->scan_rest)) ? BH_SCAN_ON : BH_NONE;
@@ -439,12 +441,20 @@ static void cbk_packet_handler(uint8_t type, uint16_t channel, uint8_t *packet, 
             ble_ev(EV_CONNECTED);
             break;
         }
-        for (i = 0; i < 2; i++)                    /* the slot connecting (one at a time), by the address it asked */
-            if (hs.s[i].st == HS_CONNECTING && (packet[3] || !memcmp(&packet[8], sl[i].addr, 6)))
+        for (i = 0; i < 2; i++)                    /* the slot connecting or cancelling (one at a time), by the address
+                                                    * it asked */
+            if ((hs.s[i].st == HS_CONNECTING || hs.s[i].st == HS_CANCELLING) &&
+                (packet[3] || !memcmp(&packet[8], sl[i].addr, 6)))
                 break;
         if (i == 2) {
             if (!packet[3])
                 ble_op_disconnect(h);              /* (completed after a cancel: not wanted) */
+            break;
+        }
+        if (hs.s[i].st == HS_CANCELLING) {         /* the cancel's completion (or a link made just before it) */
+            if (!packet[3])
+                ble_op_disconnect(h);
+            hs.s[i].st = HS_IDLE;
             break;
         }
         if (packet[3]) {
@@ -780,7 +790,10 @@ static void ble_host(void)                         /* ble_service, the host role
     uint32_t i, k, now = core_ms(), seen = 0, act;
     static const uint8_t Z[6];
     hs.want = want && !role_now && !role_want && st == BLE_IDLE;
-    hs.scan_want = hs.scan_want || (int32_t)(console_scan_until - now) > 0;
+    for (i = 0; i < 2u; i++)
+        if (hs.s[i].st == HS_CANCELLING && ble_due(now, hs.s[i].deadline_ms))
+            hs.s[i].st = HS_IDLE;                  /* (no completion came) */
+    hs.scan_want = hs.scan_want || (int32_t)(console_scan_until - now) > 0;   /* (the console's `ble scan`) */
     ble_scan_expire(&scan, now, 30000u);
     for (i = 0; i < 2u; i++) {
         ble_hslot_t *s = &hs.s[i];
@@ -800,10 +813,12 @@ static void ble_host(void)                         /* ble_service, the host role
         hs.scan_on = 1;
         hs.scan_until = now + 10000u;
         break;
-    case BH_SCAN_OFF:
+    case BH_SCAN_OFF:                              /* rest 2 s; 20 s when only the background search wants it */
         ble_op_scan_enable2(0, 0);
         hs.scan_on = 0;
-        hs.scan_rest = now + 2000u;
+        for (k = 0, i = 0; i < 2u; i++)
+            k |= hs.s[i].st == HS_IDLE && hs.s[i].target && (!hs.s[i].listed || hs.s[i].tried);
+        hs.scan_rest = now + (k || !hs.scan_bg ? 2000u : 20000u);
         break;
     case BH_CONNECT:
         memcpy(sl[i].addr, sl[i].tgt, 6);
@@ -823,9 +838,10 @@ static void ble_host(void)                         /* ble_service, the host role
         sl[i].tries++;
         ble_op_create_connection(&c);
         break;
-    case BH_CANCEL:
+    case BH_CANCEL:                                /* busy until its completion comes (1 s at most) */
         ble_op_create_connection_cancel();
-        hs.s[i].st = HS_IDLE;
+        hs.s[i].st = HS_CANCELLING;
+        hs.s[i].deadline_ms = now + 1000u;
         hs.s[i].rest_ms = now + 2000u;
         ble_slot_failed(i);
         break;
@@ -884,7 +900,7 @@ int ble_ui_slot(uint32_t slot, ble_ui_slot_t *out)
 {
     if (slot >= 2u)
         return 0;
-    out->st = hs.s[slot].st;
+    out->st = hs.s[slot].st == HS_CANCELLING ? (uint8_t)HS_IDLE : hs.s[slot].st;
     memcpy(out->addr, hs.s[slot].st == HS_IDLE ? sl[slot].tgt : sl[slot].addr, 6);
     out->type = hs.s[slot].st == HS_IDLE ? sl[slot].tgt_type : sl[slot].type;
     out->last_reason = sl[slot].last_reason;
@@ -892,7 +908,11 @@ int ble_ui_slot(uint32_t slot, ble_ui_slot_t *out)
     memcpy(out->name, sl[slot].name, 24);
     return 1;
 }
-void ble_ui_scan_want(int on) { hs.scan_want = on != 0; }
+void ble_ui_scan_want(int on)                      /* 2 continuous (the page), 1 in windows (a better device), 0 none */
+{
+    hs.scan_want = on == 2;
+    hs.scan_bg = on == 1;
+}
 void ble_ui_want(int on) { want = on != 0; }
 int ble_ui_conn_name(char out[24])
 {

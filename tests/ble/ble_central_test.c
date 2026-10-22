@@ -311,6 +311,17 @@ int main(void)
         h.scan_on = 1;
         h.scan_until = T + 9000u;
         CHECK(ble_host_step(&h, T, &sl) == BH_SCAN_OFF, "connect_listed: scanning -> the scan stops first");
+        HCLR();                                     /* final review I4: the background search is windowed */
+        h.scan_bg = 1;
+        CHECK(ble_host_step(&h, T, &sl) == BH_SCAN_ON, "scan_bg: a background search -> a scan");
+        h.scan_on = 1;
+        h.scan_until = T + 10000u;
+        CHECK(ble_host_step(&h, T + 9999u, &sl) == BH_NONE && ble_host_step(&h, T + 10000u, &sl) == BH_SCAN_OFF,
+              "scan_bg: in windows (not continuous)");
+        HCLR();                                     /* final review I5: a cancel is busy until its completion */
+        h.s[0].st = HS_CANCELLING;
+        h.s[1].target = h.s[1].listed = 1;
+        CHECK(ble_host_step(&h, T, &sl) == BH_NONE, "cancelling_busy: the other slot waits for the cancel's completion");
         #undef HCLR
     }
     printf(fails ? "ble_central: %d FAILED\n" : "ble_central: all checks passed\n", fails);

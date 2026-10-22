@@ -90,8 +90,9 @@ typedef struct { uint8_t st, addr[6], type; uint8_t last_reason; uint16_t drops;
 void ble_ui_slot_target(uint32_t slot, const uint8_t addr[6], uint32_t type);   /* all-zero addr: none; another address
                                                                                * than the linked one drops it */
 int ble_ui_slot(uint32_t slot, ble_ui_slot_t *out);   /* its state, its address (linked, else its target), its name */
-void ble_ui_scan_want(int on);             /* the core wants scanning (the page's list, a better device to find); the
-                                            * unit also scans by itself for a target not listed */
+void ble_ui_scan_want(int on);             /* the core wants scanning: 2 continuous (the page open), 1 in windows (a
+                                            * better device to find), 0 none; the unit also scans by itself for a
+                                            * target not listed */
 void ble_ui_want(int on);                  /* BLUETOOTH ON: links wanted; 0 drops them, stops a scan / connect */
 int ble_ui_conn_name(char out[24]);        /* the CTRL slot up (the device role: its host): 1 and the scanned name ("" none;
                                             * the device role: the host's address); else 0 */

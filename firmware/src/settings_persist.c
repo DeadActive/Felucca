@@ -28,6 +28,9 @@ typedef struct {
 #define PERSIST_MAGIC 0x50455234u
 
 /* Normalize in place; 1 = current, 2 = migrated, 0 = invalid. */
+#if FELUCCA_BLE
+static uint8_t bt_mac_sum(const uint8_t *r);        /* bt_devs.c: the FM-1's own Bluetooth address' check */
+#endif
 static int settings_import(persist_t *p, int n)
 {
     int current = n == (int)sizeof *p && p->magic == PERSIST_MAGIC;
@@ -75,6 +78,11 @@ static int settings_import(persist_t *p, int n)
     settings_hold = (uint8_t)hold_from_stored(p->bold);
     settings_leds = (uint8_t)leds_from_stored(p->zoom);
 #ifdef FELUCCA_FAVORITES
+#if FELUCCA_BLE
+    if (favorites.factory[13][22] == 0xA5u && favorites.factory[13][23] == bt_mac_sum(&favorites.factory[13][16]))
+        memcpy(&p->favorites.factory[13][16], &favorites.factory[13][16], 8);   /* (this FM-1's Bluetooth address
+                                                        * stays its own: a backup from another unit, bt_devs.c bt_mac) */
+#endif
     memcpy(&favorites, &p->favorites, sizeof favorites);
     favorites.filter = favorites.filter == 1u;
 #if defined(FM4_NPRESETS) && !FELUCCA_FM4

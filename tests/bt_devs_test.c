@@ -94,7 +94,7 @@ int main(void)
        idx_of(0xC3) == 1 && idx_of(0xB2) == 2);
     ok("add_order: the name and kind kept", bt_devs_get(0, &d) && str_eq(d.name, "SMC-Mixer") && d.kind == BT_KIND_CTRL);
 
-    favorites.factory[1][8 + 7] ^= 0x55u;           /* entry 1's check byte broken */
+    bt_dev_rec(1)[7] ^= 0x55u;                     /* entry 1's check byte broken */
     ok("load_bad_check: a damaged entry is skipped, the others kept", bt_devs_n() == 2u && idx_of(0xC3) < 0 &&
        idx_of(0xA1) == 0 && idx_of(0xB2) == 1);
 
@@ -128,7 +128,7 @@ int main(void)
     bt_devs_add(&c);
     bt_devs_forget(1);                              /* b */
     ok("forget: the rest close up", bt_devs_n() == 2u && idx_of(0xC3) == 0 && idx_of(0xA1) == 1 && idx_of(0xB2) < 0);
-    ok("forget: the row it left is cleared", !favorites.factory[2][8] && !favorites.factory[2][8 + 7]);
+    ok("forget: the row it left is cleared", !bt_dev_rec(2)[0] && !bt_dev_rec(2)[7]);
     bt_devs_use(1);                                 /* a */
     ok("use: to the top", idx_of(0xA1) == 0 && idx_of(0xC3) == 1);
 
@@ -215,13 +215,13 @@ int main(void)
     seen(1, &b, fm1_ms);
     link_slot(BLE_SLOT_CTRL, &b);                   /* on the second; the first is not around */
     bt_devs_frame();
-    ok("scan_want: linked to a lower one -> a background scan for the first", bh.scan_want == 1);
+    ok("scan_want: linked to a lower one -> a background scan for the first (windowed: 1)", bh.scan_want == 1);
     link_slot(BLE_SLOT_CTRL, &a);
     bt_devs_frame();
     ok("scan_want: on the first, the page closed -> none", bh.scan_want == 0);
     bt_devs_page(1);
     bt_devs_frame();
-    ok("scan_want: the page's list open -> a scan", bh.scan_want == 1);
+    ok("scan_want: the page open -> a continuous scan (2)", bh.scan_want == 2);
     bt_devs_page(0);
 
     fresh();
@@ -233,6 +233,49 @@ int main(void)
        bt_devs_state((uint32_t)idx_of(0xB2)) == 2 && bt_devs_state((uint32_t)idx_of(0xA1)) == 0);
     seen(0, &a, fm1_ms - 1000u);
     ok("state: seen a second ago -> around", bt_devs_state((uint32_t)idx_of(0xA1)) == 1);
+
+    /* final review C1: nothing around -> each kind's first saved device is the target (its windowed scans run) */
+    fresh();
+    bt_devs_add(&b);
+    bt_devs_add(&a);
+    bt_devs_add(&f);
+    bt_devs_frame();
+    ok("targets_when_none_around: no scan sighting -> the first controller is the target (scan for it)",
+       !memcmp(bh.tgt[BLE_SLOT_CTRL], a.addr, 6));
+    ok("targets_when_none_around: .. and the first FM-1", !memcmp(bh.tgt[BLE_SLOT_FM1], f.addr, 6));
+    fm1_ms += 120000u;                              /* long after any grace: still */
+    bt_devs_frame();
+    ok("targets_when_none_around: minutes later still (reconnect indefinitely)", !memcmp(bh.tgt[BLE_SLOT_CTRL], a.addr, 6));
+
+    /* final review C2: the settings' load keeps every saved device (row 1 is the retired DIGITAL's: cleared on import) */
+    fresh();
+    for (i = 0; i < 8u; i++) {
+        bt_dev_t x = mk((uint8_t)(0x30u + i), BT_KIND_CTRL, "KEEP");
+        bt_devs_add(&x);
+    }
+    {
+        static persist_t pp;
+        settings_export(&pp);
+        memset(&favorites, 0, sizeof favorites);
+        ok("rows_survive_import: the settings imported again", settings_import(&pp, sizeof pp) != 0);
+        ok("rows_survive_import: all 8 saved devices still there", bt_devs_n() == 8u && idx_of(0x37) == 0 && idx_of(0x30) == 7);
+    }
+
+    /* final review I6: a settings backup from another FM-1 keeps this FM-1's own address */
+    fresh();
+    {
+        static persist_t pp;
+        uint8_t mine[6], other[6];
+        bt_mac(mine);
+        settings_export(&pp);
+        memcpy(other, mine, 6);
+        other[2] ^= 0x5Au;                          /* the other unit's address, a valid record */
+        memcpy(&pp.favorites.factory[13][16], other, 6);
+        pp.favorites.factory[13][23] = bt_mac_sum(&pp.favorites.factory[13][16]);
+        settings_import(&pp, sizeof pp);
+        bt_mac(other);
+        ok("mac_kept_on_restore: restoring another FM-1's settings keeps this one's address", !memcmp(other, mine, 6));
+    }
 
     /* the FM-1's own Bluetooth address: made once, kept (design 5.5) */
     fresh();

@@ -7,7 +7,7 @@
  * ROLE (HOST, DEVICE) and MODE, then (HOST) the saved devices, a line each (connected or not, its name, CTRL or FM-1,
  * ON / NEAR / AWAY), four in view, and + ADD A DEVICE. On a device line a knob left asks FORGET <name>? on the state
  * line (OCT+ yes, OCT- no) and OCT+ uses it now (the first of its kind); + ADD A DEVICE opens the scan list of nearby
- * devices not saved (BLE-MIDI ones first), the page's scan running meanwhile: OCT+ saves and connects one, OCT- goes
+ * devices not saved (BLE-MIDI ones first; the page scans while it is open): OCT+ saves and connects one, OCT- goes
  * back. ROLE DEVICE: the FM-1 is the BLE-MIDI device a host connects to; no device lines then. As in the menu:
  * PRESETS moves the cursor (it wraps), any of KNOB 1..4 changes the row, OCT+ acts on it, OCT- goes back to the
  * menu's rows, HOME closes the menu.
@@ -162,11 +162,7 @@ static void bt_add_list(void)
     if (btp.asel >= btp.an)
         btp.asel = btp.an ? (uint8_t)(btp.an - 1u) : 0u;
 }
-static void bt_add_close(void)
-{
-    btp.add = 0;
-    bt_devs_page(0);
-}
+static void bt_add_close(void) { btp.add = 0; }
 
 /* BLUETOOTH ON: links wanted, the role handed over, the stack started if it is not (the user's trigger: the only
  * call of ble_user_start in the core, gate 3); the saved devices are the targets (bt_devs_frame) */
@@ -226,6 +222,7 @@ static void bt_page_open(void)                      /* MENU > SYSTEM > BLUETOOTH
     ui.menu = BT_MENU;
     btp.sel = btp.top = btp.confirm = 0;
     bt_add_close();
+    bt_devs_page(!bt_role());                       /* (HOST: scan while the page is open: its ON / NEAR / AWAY) */
     ui.force = 1;
 }
 
@@ -233,6 +230,7 @@ static void bt_page_close(void)                     /* OCT- or HOME: the page's 
 {
     btp.confirm = 0;
     bt_add_close();
+    bt_devs_page(0);
 }
 
 static void bt_page_input(uint32_t oct)             /* oct: ui_input.c oct_taps (bit 0 OCT-, bit 1 OCT+) */
@@ -332,7 +330,6 @@ static void bt_page_input(uint32_t oct)             /* oct: ui_input.c oct_taps 
             else if (ok) {
                 btp.add = 1;
                 btp.asel = btp.an = 0;
-                bt_devs_page(1);
             }
         } else if (s < 0) {                         /* a device: a knob left asks FORGET */
             btp.confirm = (uint8_t)(k + 1u);
