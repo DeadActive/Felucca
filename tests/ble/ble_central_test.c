@@ -125,7 +125,13 @@ int main(void)
         CHECK(ble_cmd_parse("start", &n) == BLE_CMD_START && ble_cmd_parse(" scan ", &n) == BLE_CMD_SCAN &&
               ble_cmd_parse("list", &n) == BLE_CMD_LIST && ble_cmd_parse("stop", &n) == BLE_CMD_STOP, "ble: words");
         CHECK(ble_cmd_parse("connect 3", &n) == BLE_CMD_CONNECT && n == 3u, "ble: connect N");
-        CHECK(ble_cmd_parse("connect 16", &n) == BLE_CMD_CONNECT && n == 16u, "ble: connect the last slot");
+        {
+            char w[16];
+            snprintf(w, sizeof w, "connect %u", (unsigned)BLE_SCAN_MAX);
+            CHECK(ble_cmd_parse(w, &n) == BLE_CMD_CONNECT && n == BLE_SCAN_MAX, "ble: connect the last slot");
+            snprintf(w, sizeof w, "connect %u", (unsigned)BLE_SCAN_MAX + 1u);
+            CHECK(ble_cmd_parse(w, &n) == BLE_CMD_BAD, "ble: past the last slot -> refused");
+        }
         CHECK(ble_cmd_parse("connect", &n) == BLE_CMD_BAD && ble_cmd_parse("connect 0", &n) == BLE_CMD_BAD &&
               ble_cmd_parse("connect 17", &n) == BLE_CMD_BAD && ble_cmd_parse("connect x", &n) == BLE_CMD_BAD &&
               ble_cmd_parse("connect 1x", &n) == BLE_CMD_BAD, "ble: bad connect numbers");

@@ -94,7 +94,7 @@ working beside it (a Mac connects to a DEVICE FM-1 as before).
   division (`fml_beats`). A leader whose sequencer started by other means (a count-in's end, SONG) announces it.
 - Gates as before; gate 2c's lists change only if the update path's code does.
 
-## 8. Two links at once (added 2026-10-22, the user: "both connection to multiple devices in host mode")
+## 8. Two links at once (added 2026-10-22, the user: "both connection to multiple devices in host mode"; ROLE HOST + LINK was replaced the same day by the saved devices: docs/superpowers/specs/2026-10-22-bt-devices-design.md)
 
 - The JieLi libraries we link carry multi-link support; `sdkcfg/app_config.h` switches it on as `multi_demo` does:
   two links as the central, one as the peripheral (`TRANS_MULTI_BLE_*`). Measured: +8 B of flash for the libraries.

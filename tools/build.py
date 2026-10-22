@@ -477,8 +477,10 @@ def check(img, syms, dis, rt, ble=False, measure=False):
                 errors.append(f"reference to ROM address {val:#010x}")
     if len(img) > APP_SLOT:
         soft.append(f"image {len(img)} B exceeds the app slot ({APP_SLOT} B) by {len(img) - APP_SLOT} B")
-    elif ble and APP_SLOT - len(img) < 32768:     # the Bluetooth build keeps 32 KB of the slot (the user's margin)
-        soft.append(f"image {len(img)} B leaves {APP_SLOT - len(img)} B of the app slot, < 32768 B")
+    elif ble and APP_SLOT - len(img) < 30720:     # the Bluetooth build keeps 30 KB of the slot (the user's floor,
+        soft.append(f"image {len(img)} B leaves {APP_SLOT - len(img)} B of the app slot, < 30720 B")   # 2026-10-22)
+    elif ble and APP_SLOT - len(img) < 32768:     # (32 KB the margin wanted: "try")
+        notes.append(f"the app slot keeps {APP_SLOT - len(img)} B, under the 32 KB wanted (30 KB the floor)")
 
     def sym(name):
         mm = re.search(r"^([0-9a-f]+) .*\s" + name + r"$", syms, re.M)
