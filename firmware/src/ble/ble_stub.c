@@ -16,7 +16,6 @@ int ble_fml_send(const uint8_t *p, uint32_t len) { (void)p; (void)len; return 0;
 int ble_fml_ready(void) { return 0; }
 uint32_t ble_ui_state(void) { return BLE_ST_OFF; }
 const char *ble_ui_err(uint32_t *code) { *code = 0; return ""; }
-uint32_t ble_ui_scan_left(void) { return 0; }
 uint32_t ble_ui_devs(void) { return 0; }
 int ble_ui_dev(uint32_t i, ble_ui_dev_t *out) { (void)i; (void)out; return 0; }
 void ble_ui_slot_target(uint32_t slot, const uint8_t addr[6], uint32_t type) { (void)slot; (void)addr; (void)type; }

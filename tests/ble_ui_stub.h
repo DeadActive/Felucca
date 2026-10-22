@@ -32,7 +32,6 @@ static struct {
 } bs;
 uint32_t ble_ui_state(void) { return bs.state; }
 const char *ble_ui_err(uint32_t *code) { *code = bs.code; return bs.err ? bs.err : ""; }
-uint32_t ble_ui_scan_left(void) { return bs.left; }
 uint32_t ble_ui_devs(void) { return bs.ndev; }
 int ble_ui_dev(uint32_t i, ble_ui_dev_t *out)
 {

@@ -49,7 +49,6 @@ void sys_local_irq_disable(void) __attribute__((alias("local_irq_disable")));
 void sys_local_irq_enable(void) __attribute__((alias("local_irq_enable")));
 int cpu_irq_disabled(void) { return fm1_ble_irq_depth != 0; }
 int cpu_in_irq(void) { return 0; }                       /* (only CRC16's hardware path and asserts ask) */
-static uint32_t ble_irqs_requested[2];                   /* bit per index < 64, for the console */
 void request_irq(unsigned char index, unsigned char priority, void (*handler)(void), unsigned char cpu_id)
 {
     (void)cpu_id;                                        /* one core runs everything here */
@@ -62,8 +61,6 @@ void request_irq(unsigned char index, unsigned char priority, void (*handler)(vo
     core_irq_attach(index, handler, priority);           /* the SDK's handlers are interrupt functions (rti):
                                                           * checked in the link (fm1-lsdj docs/ble/LINK_NOTES.md) */
     local_irq_enable();
-    if (index < 64u)
-        ble_irqs_requested[index >> 5] |= 1u << (index & 31u);
 }
 void unrequest_irq(uint8_t index, uint8_t cpu_id) { (void)cpu_id; core_irq_mask(index); }
 void bit_set_ie(unsigned char index, uint8_t cpuid) { (void)cpuid; core_irq_unmask(index); }

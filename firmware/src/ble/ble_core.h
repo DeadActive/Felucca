@@ -83,7 +83,6 @@ enum { BLE_ST_OFF, BLE_ST_STARTING, BLE_ST_IDLE, BLE_ST_SCANNING, BLE_ST_CONNECT
 typedef struct { uint8_t addr[6], type, midi; int8_t rssi; char name[24]; uint32_t seen_ms; } ble_ui_dev_t;
 uint32_t ble_ui_state(void);
 const char *ble_ui_err(uint32_t *code);                /* the last error text ("" none) and its code */
-uint32_t ble_ui_scan_left(void);                       /* a background scan: whole seconds of its window left */
 uint32_t ble_ui_devs(void);                            /* the scan list (seen in the last 30 s), strongest first */
 int ble_ui_dev(uint32_t i, ble_ui_dev_t *out);         /* 0 = no such entry */
 enum { BLE_SLOT_CTRL, BLE_SLOT_FM1, BLE_SLOTS };

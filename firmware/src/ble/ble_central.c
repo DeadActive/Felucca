@@ -287,6 +287,9 @@ typedef struct {
     uint32_t scan_until, scan_rest;                 /* a background scan's window end; its rest's end */
 } ble_host_t;
 static int ble_due(uint32_t now, uint32_t at) { return (int32_t)(now - at) >= 0; }
+/* the rest after the n-th failed connect in a row (from 0): 2 s doubling to 16 s. Measured on the FM-1 (2026-10-22):
+ * each failed connect holds the interrupts off ~12 ms inside the libraries, the audio late by several blocks */
+uint32_t ble_fail_rest(uint32_t n) { return 2000u << (n < 3u ? n : 3u); }
 /* the next action and its slot (*slot) */
 uint32_t ble_host_step(const ble_host_t *h, uint32_t now_ms, uint32_t *slot)
 {
@@ -337,6 +340,7 @@ static struct {
     uint8_t addr[6], type;                          /* the address linked or being connected to */
     uint8_t tgt[6], tgt_type;                       /* its target (ble_ui_slot_target; all-zero: none) */
     uint8_t fail;                                   /* a connect / discovery failed: not again until seen anew */
+    uint8_t nfail;                                  /* failed connects in a row (ble_fail_rest) */
     uint8_t last_reason;                            /* the HCI reason of its last disconnect */
     uint32_t fail_seen;                             /* the target's last sighting when it failed */
     uint16_t drops, tries;                          /* links lost; connects tried */
@@ -358,7 +362,6 @@ static uint32_t fq_h, fq_t, fq_lost, fml_in, fml_out;
 static uint8_t fml_heard;                           /* the device role: the host wrote to FM-Link (it is an FM-1: it
                                                      * takes FM-Link notifications) */
 
-uint32_t ble_state(void) { return st; }
 const char *ble_err(uint32_t *code) { *code = err_code; return err_text; }
 static void set_err(const char *text, uint32_t code) { err_text = text; err_code = code; }
 static void set_deadline(uint32_t ms) { deadline_ms = core_ms() + ms; }
@@ -396,9 +399,12 @@ static int ble_slot_of(uint16_t h)                 /* the host slot of a link ha
 {
     return h && h == sl[0].con ? 0 : h && h == sl[1].con ? 1 : -1;
 }
-static void ble_slot_failed(uint32_t i)            /* a connect / discovery that failed: rest, not again until seen */
+static void ble_slot_failed(uint32_t i)            /* a connect / discovery that failed (or a link lost): rest, longer
+                                                    * each time; not again until seen anew */
 {
     uint32_t k;
+    hs.s[i].rest_ms = core_ms() + ble_fail_rest(sl[i].nfail);
+    sl[i].nfail += sl[i].nfail < 3u;
     sl[i].fail = 1;
     sl[i].fail_seen = 0;
     for (k = 0; k < BLE_SCAN_MAX; k++)
@@ -460,7 +466,6 @@ static void cbk_packet_handler(uint8_t type, uint16_t channel, uint8_t *packet, 
         if (packet[3]) {
             set_err("CONNECT FAILED", packet[3]);
             hs.s[i].st = HS_IDLE;
-            hs.s[i].rest_ms = core_ms() + 2000u;
             ble_slot_failed((uint32_t)i);
             break;
         }
@@ -479,15 +484,17 @@ static void cbk_packet_handler(uint8_t type, uint16_t channel, uint8_t *packet, 
     case BLE_SDK_HCI_EVENT_DISCONNECTION_COMPLETE:   /* le_net_central.c 917: handle packet[3..4], reason packet[5] */
         h = (uint16_t)(packet[3] | packet[4] << 8);
         if ((i = ble_slot_of(h)) >= 0) {           /* a host slot's link */
-            if (hs.s[i].st == HS_DISCOVERING && !hs.s[i].dropping)
+            if (!hs.s[i].dropping) {               /* (not a drop asked for: another target, Bluetooth OFF) */
+                if (hs.s[i].st == HS_UP)           /* lost: not again before it advertises again (its entry is from */
+                    sl[i].nfail = 0;               /* before the link), from 2 s */
                 ble_slot_failed((uint32_t)i);
+            }
             sl[i].drops += hs.s[i].st == HS_UP;
             sl[i].last_reason = packet[5];
             sl[i].con = sl[i].midi = sl[i].fml = 0;
             ble_op_multi_att_send_conn_handle(0, i, 1);
             hs.s[i].st = HS_IDLE;
             hs.s[i].dropping = 0;
-            hs.s[i].rest_ms = core_ms() + 2000u;
             if (i == 0) {
                 ctrl_up = 0;
                 mo.t = mo.h;                       /* (MIDI out lives only while linked) */
@@ -601,9 +608,11 @@ void user_client_report_search_result(search_result_t *r)
             static const uint8_t on[2] = {1, 0};   /* notifications on: the CCCD after the value */
             ble_op_multi_att_send_data(sl[0].con, sl[0].midi + 1u, (void *)on, 2, BLE_SDK_ATT_OP_WRITE);
             hs.s[0].st = HS_UP;
+            sl[0].nfail = 0;
             ctrl_up = 1;
         } else if (i == 1 && sl[1].fml) {
-            hs.s[1].st = HS_UP;                    /* (FM-Link: the FM-1 notifies once written to) */
+            hs.s[1].st = HS_UP;
+            sl[1].nfail = 0;                    /* (FM-Link: the FM-1 notifies once written to) */
         } else if (!hs.s[i].dropping) {
             set_err(i ? "NO FM-LINK" : "NO BLE-MIDI SERVICE", 0);
             ble_slot_failed(i);
@@ -842,7 +851,6 @@ static void ble_host(void)                         /* ble_service, the host role
         ble_op_create_connection_cancel();
         hs.s[i].st = HS_CANCELLING;
         hs.s[i].deadline_ms = now + 1000u;
-        hs.s[i].rest_ms = now + 2000u;
         ble_slot_failed(i);
         break;
     case BH_DROP:                                  /* its disconnection-complete makes it HS_IDLE */
@@ -868,11 +876,6 @@ _Static_assert(BLE_LS_IDLE == HS_IDLE && BLE_LS_CONNECTING == HS_CONNECTING && B
                BLE_LS_UP == HS_UP, "ble_core.h's link states");
 uint32_t ble_ui_state(void) { return st; }
 const char *ble_ui_err(uint32_t *code) { return ble_err(code); }
-uint32_t ble_ui_scan_left(void)                    /* a scan running: whole seconds of its window left */
-{
-    int32_t left = (int32_t)(hs.scan_until - core_ms());
-    return hs.scan_on && !hs.scan_want && left > 0 ? ((uint32_t)left + 999u) / 1000u : 0;
-}
 uint32_t ble_ui_devs(void) { return ble_listed(); }
 int ble_ui_dev(uint32_t i, ble_ui_dev_t *out)
 {
