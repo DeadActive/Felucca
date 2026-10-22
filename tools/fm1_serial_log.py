@@ -4,9 +4,11 @@
 """Log the FM-1's USB serial console (MENU > SYSTEM > USB SERIAL ON) with timestamps, across reboots: the port goes
 away when the FM-1 resets and comes back, the logger waits for it. On every (re)connect it sends `crash`, `ble` and
 `fml` (the crash record and the Bluetooth state right after a reset, before AUTOSTART starts Bluetooth again), then
-`ble` every PERIOD seconds while connected. Needs pyserial (pip install pyserial).
+the poll commands (--poll, default `ble`) every PERIOD seconds while connected. Needs pyserial (pip install pyserial).
+For a stall or a lag around a link drop: --period 2 --poll ble,status (`ble`: the main loop's longest period and the
+longest Bluetooth task run since the last `ble`, each link's state; `status`: audio_max_us, audio_late, cpu_pct).
 
-  fm1_serial_log.py LOGFILE [--port /dev/cu.usbmodemXXXX] [--period 30]
+  fm1_serial_log.py LOGFILE [--port /dev/cu.usbmodemXXXX] [--period 30] [--poll ble,status]
 """
 import argparse
 import glob
@@ -26,7 +28,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("log", help="the file the lines are appended to")
     ap.add_argument("--port", help="the serial port (default: the first /dev/cu.usbmodem*)")
-    ap.add_argument("--period", type=float, default=30.0, help="seconds between `ble` polls (0: none)")
+    ap.add_argument("--period", type=float, default=30.0, help="seconds between polls (0: none)")
+    ap.add_argument("--poll", default="ble", help="console commands sent each period, comma separated (ble,status)")
     a = ap.parse_args()
     if serial is None:
         raise SystemExit("fm1_serial_log: pyserial is needed (pip install pyserial)")
@@ -60,7 +63,7 @@ def main():
                             line, buf = buf.split(b"\n", 1)
                             log(line.rstrip(b"\r").decode("latin-1"))
                     if a.period and time.time() - last > a.period:
-                        sp.write(b"ble\r\n")
+                        sp.write("".join(c.strip() + "\r\n" for c in a.poll.split(",") if c.strip()).encode())
                         last = time.time()
             except Exception as e:
                 if buf:
