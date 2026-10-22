@@ -14,6 +14,12 @@ The console: MENU > SYSTEM > USB SERIAL ON, then `screen /dev/cu.usbmodem* 11520
 on, type `ble` and `crash`, and copy both (they keep the start-up record, `fatal` and the heap figures over the
 reboot: `fatal` 1 a library assert, 2 a library reset request, 3 a BT task's stack overflow).
 
+## Logging a session
+
+With the FM-1 on USB and MENU > SYSTEM > USB SERIAL ON, `tools/fm1_serial_log.py session.log` (needs `pip install
+pyserial`) writes every console line with the time. It waits for the FM-1 across resets and asks `crash`, `ble` and
+`fml` each time it comes back, and `ble` every 30 s. Send the log file back with what you did and when.
+
 ## The steps
 
 1. **Install.** Expected: the FM-1 restarts as Felucca 1.6; play, change pages, save a project. MENU > SYSTEM shows
