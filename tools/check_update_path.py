@@ -122,12 +122,16 @@ def compare(dis_text, ref_text):
 # For a listed function the instructions cannot be compared (the allocator renames registers around the change), so
 # its callees are: (why, callees only the Bluetooth compile may have, callees only the plain compile may have).
 KNOWN_2C = {
-    "fm1_main": ("the main loop inlines the console, which has the `ble` word (ble_console), and fm1_guard_lock_top "
-                 "is called instead of inlined (core_ble_api.c core_irq_attach uses it too)",
-                 {"ble_console", "fm1_guard_lock_top"}, set()),
+    "fm1_main": ("the main loop inlines the console, which has the `ble` word (ble_console) and the `fml` word (FM-Link's "
+                 "fml_linked, built for size: tools/size_fns.py), and fm1_guard_lock_top is called instead of inlined "
+                 "(core_ble_api.c core_irq_attach uses it too)",
+                 {"ble_console", "fm1_guard_lock_top", "fml_linked"}, set()),
     "fm1_reboot": ("core_ble_api.c core_reboot is a second user of fm1_reboot, so it is a function of its own",
                    {"fm1__p33_op"}, set()),
     "fm1_fault_c": ("it calls fm1_reboot instead of inlining it (above)", {"fm1_reboot"}, {"fm1__p33_op"}),
+    "st_erase": ("it calls fm1__led_lines (its only caller in both compiles) instead of inlining it: the inliner's "
+                 "order changes with the saved devices' code (bt_devs.c), its body is the same",
+                 {"fm1__led_lines"}, set()),
 }
 
 

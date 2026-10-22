@@ -9,7 +9,10 @@
  *   Stored in the settings record's favourites table, in bytes no favourite uses: entry i in favorites.factory[i][8..31]
  * (presets 64..255 of engines that have at most 12): [0..5] the address, [6] flags (bit 0 a random address, bit 1 an
  * FM-1, bit 7 used), [7] the XOR of the other 23 bytes ^ 0x5A, [8..23] the name (NUL-padded). The plain build keeps
- * those bytes as saved (bt_set.c's rule). A change is saved with the settings (settings_save). Main loop only. */
+ * those bytes as saved (bt_set.c's rule). A change is saved with the settings (settings_save). Main loop only.
+ *   And this FM-1's own Bluetooth address (bt_mac, core_ble_mac: ble_start), so other FM-1s can save it: made once (a
+ * random static address, as ble_start made one at each start before) and kept in favorites.factory[13][16..23]
+ * (SLICE's presets 128..191, which do not exist): [16..21] the address, [22] 0xA5, [23] the XOR of [16..22] ^ 0x3C. */
 #define BT_NDEV 8u
 #define BT_AROUND_MS 20000u
 #define BT_GRACE_MS 30000u
@@ -198,4 +201,30 @@ static void bt_devs_frame(void)
         scan |= up && linked != first;             /* (on a lower one: look for the first) */
     }
     ble_ui_scan_want((int)scan);
+}
+
+static uint8_t bt_mac_sum(const uint8_t *r)
+{
+    uint32_t i, x = 0x3Cu;
+    for (i = 0; i < 7u; i++)
+        x ^= r[i];
+    return (uint8_t)x;
+}
+static void bt_mac(uint8_t mac[6])                 /* this FM-1's address: the stored one, else made now and stored */
+{
+    uint8_t *r = &favorites.factory[13][16];
+    uint32_t i, x;
+    if (r[6] != 0xA5u || r[7] != bt_mac_sum(r)) {
+        x = fm1_ticks() ^ fm1_ms * 2654435761u;    /* (the moment Bluetooth was first turned on) */
+        for (i = 0; i < 6u; i++) {
+            x = x * 1103515245u + 12345u;
+            r[i] = (uint8_t)(x >> 16);
+        }
+        r[0] |= 0xC0u;                             /* random static: the top two bits set, at whichever end */
+        r[5] |= 0xC0u;                             /* the stack keeps the most significant byte */
+        r[6] = 0xA5u;
+        r[7] = bt_mac_sum(r);
+        settings_save();
+    }
+    memcpy(mac, r, 6);
 }

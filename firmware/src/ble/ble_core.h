@@ -37,6 +37,8 @@ extern const struct {
     uint32_t early;
 } fm1_crash;
 #endif
+/* this FM-1's Bluetooth address: a random static address made once and kept in the settings (bt_devs.c bt_mac) */
+void core_ble_mac(uint8_t mac[6]);
 /* console (CDC) */
 void core_con_puts(const char *s);
 /* BLE MIDI in and the link, from ble_service (the main loop): each received USB-MIDI packet (cable 0) in order, while

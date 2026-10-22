@@ -234,6 +234,25 @@ int main(void)
     seen(0, &a, fm1_ms - 1000u);
     ok("state: seen a second ago -> around", bt_devs_state((uint32_t)idx_of(0xA1)) == 1);
 
+    /* the FM-1's own Bluetooth address: made once, kept (design 5.5) */
+    fresh();
+    {
+        uint8_t m1[6], m2[6];
+        bt_mac(m1);
+        ok("mac_made_once: none stored -> made and stored with a good check",
+           favorites.factory[13][22] == 0xA5u && !memcmp(&favorites.factory[13][16], m1, 6));
+        host_ticks += 123457u;
+        fm1_ms += 999u;
+        bt_mac(m2);
+        ok("mac_kept: asked again (another moment) -> the same", !memcmp(m1, m2, 6));
+        ok("mac_valid: a random static address (the top two bits set at both ends, as ble_start's)",
+           (m1[0] & 0xC0u) == 0xC0u && (m1[5] & 0xC0u) == 0xC0u);
+        favorites.factory[13][23] ^= 1u;           /* the check broken: a new one */
+        bt_mac(m2);
+        ok("mac_made_once: a damaged record -> a new address, stored", favorites.factory[13][22] == 0xA5u &&
+           !memcmp(&favorites.factory[13][16], m2, 6));
+    }
+
     printf(fails ? "bt_devs: %d FAILED\n" : "bt_devs: all checks passed\n", fails);
     return fails != 0;
 }

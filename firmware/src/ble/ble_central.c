@@ -622,7 +622,6 @@ void user_client_report_data_callback(att_data_report_t *d)
 /* ---- the main loop's side ---- */
 void ble_start(void)
 {
-    uint32_t i, x;
     if (st != BLE_OFF)
         return;
     if (!ble_rf_trim_load()) {                     /* no stored radio calibration: do not start (the trim hangs) */
@@ -630,13 +629,8 @@ void ble_start(void)
         st = BLE_FAILED;
         return;
     }
-    x = fm1_ticks() ^ core_ms() * 2654435761u;    /* the time of the key press */
-    for (i = 0; i < 6u; i++) {
-        x = x * 1103515245u + 12345u;
-        ble_mac[i] = (uint8_t)(x >> 16);
-    }
-    ble_mac[0] |= 0xC0u;                           /* random static: the top two bits set, at whichever end */
-    ble_mac[5] |= 0xC0u;                           /* the stack keeps the most significant byte */
+    core_ble_mac(ble_mac);                         /* this FM-1's own address, the same at every start (saved devices
+                                                    * find it again: bt_devs.c bt_mac) */
     ble_os_init(ble_heap, sizeof ble_heap);
     ble_delay_calibrate();                         /* (counted-loop delays for the radio calibration) */
     ble_os_trace = &ble_diag.task;

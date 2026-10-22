@@ -57,6 +57,7 @@ void core_con_puts(const char *s)
     (void)s;
 #endif
 }
+void core_ble_mac(uint8_t mac[6]) { bt_mac(mac); }
 void core_ble_midi_in(uint32_t pkt) { bt_midi_in(pkt); }
 void core_fml_rx(const uint8_t *p, uint32_t len, uint32_t t) { bt_fml_rx(p, len, t); }
 uint32_t core_ble_in_drops(void) { return bt_in.drops; }
