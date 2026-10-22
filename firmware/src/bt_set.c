@@ -5,7 +5,8 @@
  * its magic and size unchanged): MODE and the remembered device in favorites.factory[13][24..31],
  *   [24..29] the device's address, [30] bits 0-1 MODE, bit 2 the address type (0 public, 1 random), bit 3
  *   AUTOSTART (Bluetooth on by itself after a clean boot, bt_page.c bt_page_auto), bit 4 ROLE (0 HOST, 1 DEVICE),
- *   bit 5 LINK (ROLE HOST + LINK: a second link to another FM-1, FM-Link only; ble_ui_link),
+ *   bit 5 retired (ROLE HOST + LINK, until the saved devices: bt_devs.c; written 0, read and ignored). The address
+ *   bytes [24..29] and bit 2 are no longer used either (the saved devices: bt_devs.c): left as saved.
  *   [31] the XOR of the seven bytes before it, XOR 0xB7.
  * Row 13 is the SLICE engine's favourites, a bit per factory preset; bytes 24..31 would be its presets 192..255,
  * which do not exist. A record without the bytes (all zero: every older setting) or with a wrong check byte is no

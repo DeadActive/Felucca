@@ -45,6 +45,7 @@ static uint32_t smc_seen;
 static void smc_in(uint32_t pkt) { (void)pkt; smc_seen++; }
 #include "../firmware/src/bt_midi.c"
 #include "../firmware/src/bt_fml.c"
+#include "../firmware/src/bt_devs.c"
 #include "../firmware/src/bt_page.c"
 
 static int fails;

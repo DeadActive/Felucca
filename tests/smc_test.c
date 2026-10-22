@@ -27,6 +27,7 @@ uint32_t ble_midi_room(void) { return room; }
 #include "../firmware/src/smc.c"
 #include "../firmware/src/bt_midi.c"
 #include "../firmware/src/bt_fml.c"
+#include "../firmware/src/bt_devs.c"
 #include "../firmware/src/bt_page.c"
 
 static int fails;

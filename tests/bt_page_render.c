@@ -22,14 +22,17 @@ static void smc_in(uint32_t pkt) { (void)pkt; }
 #endif
 #include "../firmware/src/bt_midi.c"
 #include "../firmware/src/bt_fml.c"
+#include "../firmware/src/bt_devs.c"
 #include "../firmware/src/bt_page.c"
 
-enum { BS_OFF, BS_STARTING, BS_SCAN, BS_SCAN_LIST, BS_LIST_END, BS_CONNECTED, BS_CONNECTED_LONG, BS_FAILED, BS_ERROR, BS_REC,
+enum { BS_OFF, BS_STARTING, BS_NONE, BS_DEVICES, BS_SCROLLED, BS_FORGET, BS_ADD, BS_ADD_EMPTY, BS_FAILED, BS_ERROR, BS_REC,
        BS_DEV_WAIT, BS_DEV_HOST, BS_COUNT };
-static const char *const BS_NAME[BS_COUNT] = {"bt_off", "bt_starting", "bt_scan", "bt_scan_list", "bt_list_end", "bt_connected",
-                                            "bt_connected_long", "bt_failed", "bt_error", "bt_rec",
+static const char *const BS_NAME[BS_COUNT] = {"bt_off", "bt_starting", "bt_none", "bt_devices", "bt_scrolled", "bt_forget",
+                                            "bt_add", "bt_add_empty", "bt_failed", "bt_error", "bt_rec",
                                             "bt_device_waiting", "bt_device_host"};
-static void dev(uint32_t i, uint8_t a0, uint32_t type, int midi, int rssi, const char *name)
+/* 23 bytes, some above 0x7F, some below 0x20: a name no label is like */
+static const char ODD[] = "W\xC3\x9CRFEL\x01KEYBOARD MK2 WWWWW";
+static void dev(uint32_t i, uint8_t a0, uint32_t type, int midi, int rssi, const char *name)   /* seen now */
 {
     ble_ui_dev_t *d = &bs.dev[i];
     memset(d, 0, sizeof *d);
@@ -38,79 +41,86 @@ static void dev(uint32_t i, uint8_t a0, uint32_t type, int midi, int rssi, const
     d->midi = (uint8_t)midi;
     d->rssi = (int8_t)rssi;
     memcpy(d->name, name, strlen(name) < 23u ? strlen(name) : 23u);
+    d->seen_ms = fm1_ms;
     if (bs.ndev <= i)
         bs.ndev = i + 1u;
 }
-static void remember(uint8_t a0, uint32_t mode)
+static void save(uint8_t a0, const char *name)       /* a saved device (to the top) */
 {
-    bt_set_t s = {{a0, 0x12, 0x34, 0x56, 0xAB, 0xC4}, 0, (uint8_t)mode, 1, (uint8_t)(mode == BT_MODE_SMC)};   /* (SMC: AUTOSTART ON) */
-    bt_set_put(&s);
+    bt_dev_t d;
+    memset(&d, 0, sizeof d);
+    d.addr[0] = a0, d.addr[1] = 0x12, d.addr[2] = 0x34, d.addr[3] = 0x56, d.addr[4] = 0xAB, d.addr[5] = 0xC4;
+    d.kind = (uint8_t)bt_dev_kind(name);
+    memcpy(d.name, name, strlen(name) < 16u ? strlen(name) : 16u);
+    bt_devs_add(&d);
+}
+static void up(uint32_t slot, uint8_t a0)
+{
+    memset(&bh.slot[slot], 0, sizeof bh.slot[slot]);
+    bh.slot[slot].st = BLE_LS_UP;
+    bh.slot[slot].addr[0] = a0, bh.slot[slot].addr[1] = 0x12, bh.slot[slot].addr[2] = 0x34;
+    bh.slot[slot].addr[3] = 0x56, bh.slot[slot].addr[4] = 0xAB, bh.slot[slot].addr[5] = 0xC4;
+}
+static void four(void)                               /* four saved: the mixer and an FM-1 linked, one near, one away */
+{
+    save(0x22, ODD);
+    save(0x33, "Xkey Air 25");
+    save(0xF1, "Felucca FM-1");
+    save(0x11, "SMC-Mixer");
+    up(BLE_SLOT_CTRL, 0x11);
+    up(BLE_SLOT_FM1, 0xF1);
+    dev(0, 0x33, 0, 1, -61, "Xkey Air 25");
 }
 static void bt_setup(int s)
 {
-    /* 23 bytes, some above 0x7F, some below 0x20: a name no label is like */
-    static const char ODD[] = "W\xC3\x9CRFEL\x01KEYBOARD MK2 WWWWW";
     state();
     memset(&favorites, 0, sizeof favorites);
     memset(&bs, 0, sizeof bs);
+    memset(&bh, 0, sizeof bh);
     memset(&btp, 0, sizeof btp);
+    memset(&bt_dv, 0, sizeof bt_dv);
     memset(conn_name, 0, sizeof conn_name);
     conn_up = 0;
-    bs_link_state = 0;
+    fm1_ms = 100000u;
     song.rec = 0;
     ui.menu = BT_MENU;
     ui.menu_sel = MI_BT;
     switch (s) {
     case BS_OFF: break;
     case BS_STARTING: btp.on = 1; bs.state = BLE_ST_STARTING; btp.sel = 3; break;
-    case BS_SCAN: btp.on = 1; bs.state = BLE_ST_SCANNING; bs.left = 10; btp.sel = 5; break;
-    case BS_SCAN_LIST:
-        btp.on = 1; bs.state = BLE_ST_SCANNING; bs.left = 7; btp.sel = 6;
-        dev(0, 0x9A, 1, 0, -40, "");
-        dev(1, 0x11, 0, 1, -59, "SMC-Mixer");
-        dev(2, 0x22, 0, 1, -127, ODD);
+    case BS_NONE: btp.on = 1; bs.state = BLE_ST_IDLE; btp.sel = 4; break;   /* nothing saved: the cursor on ADD */
+    case BS_DEVICES: btp.on = 1; bs.state = BLE_ST_IDLE; four(); btp.sel = 4; break;
+    case BS_SCROLLED:                                /* six saved, the cursor on ADD: the lines scrolled */
+        btp.on = 1; bs.state = BLE_ST_IDLE; four();
+        save(0x44, "nanoKEY Studio");
+        save(0x55, "LPD8 MK2");
+        btp.sel = 4 + 6;
         break;
-    case BS_LIST_END:
-        btp.on = 1; bs.state = BLE_ST_IDLE; btp.sel = BT_ROWS + 7u;
-        dev(0, 0x11, 0, 1, -59, "SMC-Mixer");
-        dev(1, 0x22, 0, 1, -61, "Xkey Air 25 BLE");
-        dev(2, 0x33, 1, 0, -70, "");
-        dev(3, 0x44, 1, 0, -72, "Galaxy Buds2 Pro");
-        dev(4, 0x55, 1, 0, -80, "");
+    case BS_FORGET: btp.on = 1; bs.state = BLE_ST_IDLE; four(); btp.sel = 6; btp.confirm = 3; break;
+    case BS_ADD:                                     /* the ADD list: BLE-MIDI first, a nameless one, the odd name */
+        btp.on = 1; bs.state = BLE_ST_IDLE; save(0x11, "SMC-Mixer"); btp.sel = 5; btp.add = 1; btp.asel = 2;
+        dev(0, 0x11, 0, 1, -40, "SMC-Mixer");        /* (saved: not listed) */
+        dev(1, 0x9A, 1, 0, -40, "");
+        dev(2, 0xF2, 0, 1, -59, "Felucca FM-1");
+        dev(3, 0x22, 0, 1, -127, ODD);
+        dev(4, 0x44, 1, 0, -72, "Galaxy Buds2 Pro");
         dev(5, 0x66, 1, 0, -81, "TV");
-        dev(6, 0x77, 1, 0, -90, ODD);
-        dev(7, 0x88, 1, 0, -100, "");
-        dev(8, 0x99, 1, 0, -101, "NINTH (NOT LISTED)");
-        remember(0x11, BT_MODE_AUTO);
+        dev(6, 0x77, 1, 0, -90, "");
+        dev(7, 0x88, 1, 0, -100, "Printer");
+        dev(8, 0x99, 1, 0, -101, "NINTH");
+        dev(9, 0xAA, 1, 0, -102, "TENTH (NOT LISTED)");
         break;
-    case BS_CONNECTED:                               /* ROLE HOST + LINK (under the cursor), both links up */
-        btp.on = 1; bs.state = BLE_ST_RECEIVING; btp.sel = 2; conn_up = 1; bs_link_state = 2;
-        strcpy(conn_name, "SMC-Mixer");
-        remember(0x11, BT_MODE_SMC);
-        {
-            bt_set_t d;
-            bt_set_get(&d);
-            d.link = 1;
-            bt_set_put(&d);
-        }
-        break;
-    case BS_CONNECTED_LONG:
-        btp.on = 1; bs.state = BLE_ST_SUBSCRIBED; btp.sel = 0; conn_up = 1; bs_link_state = 2;   /* (+ FM-1: clipped) */
-        memcpy(conn_name, ODD, 23);
-        remember(0x22, BT_MODE_MIDI);
-        dev(0, 0x22, 0, 1, -61, ODD);
-        break;
-    case BS_FAILED: bs.state = BLE_ST_FAILED; bs.err = "NO RF TRIM IN FLASH"; remember(0x11, BT_MODE_AUTO); break;
+    case BS_ADD_EMPTY: btp.on = 1; bs.state = BLE_ST_IDLE; btp.sel = 4; btp.add = 1; break;
+    case BS_FAILED: bs.state = BLE_ST_FAILED; bs.err = "NO RF TRIM IN FLASH"; four(); break;
     case BS_ERROR:
-        btp.on = 1; bs.state = BLE_ST_IDLE; bs.err = "DISCONNECTED 0x08"; bs.code = 8; btp.sel = 5;
-        remember(0x11, BT_MODE_AUTO);
+        btp.on = 1; bs.state = BLE_ST_IDLE; bs.err = "DISCONNECTED 0x08"; bs.code = 8; four(); btp.sel = 7;
         break;
     case BS_REC: btp.on = 1; bs.state = BLE_ST_IDLE; song.rec = 1; break;   /* (the head: the REC mark beside BACK) */
     case BS_DEV_WAIT: {                              /* ROLE DEVICE: advertising, the cursor on ROLE */
         bt_set_t d = {{0}, 0, BT_MODE_AUTO, 0, 1, 1};
         bt_set_put(&d);
         btp.on = 1; bs.state = BLE_ST_ADVERTISING; btp.sel = 2;
-        dev(0, 0x11, 0, 1, -59, "SMC-Mixer");      /* (a list the device role does not show) */
+        save(0x11, "SMC-Mixer");                     /* (saved devices the device role does not show) */
         break;
     }
     case BS_DEV_HOST: {                              /* ROLE DEVICE: a host connected (its address as the name), MODE
@@ -166,16 +176,17 @@ int main(int argc, char **argv)
     al_flush();
     {   /* what the page must show: the state, the rows, a device's tag and signal (GREY's last screen is not kept:
          * draw one and look for the words among the boxes the lint saw) */
-        static const char *const WANT[] = {"SCANNING 7 S", "BLUETOOTH", "AUTOSTART", "ROLE", "HOST", "MODE", "DEVICE", "SCAN", "SMC-Mixer", "MIDI", "-59", "ON", "AUTO", "NONE"};
+        static const char *const WANT[] = {"ON, 2 CONNECTED", "BLUETOOTH", "AUTOSTART", "ROLE", "HOST", "MODE", "SMC-Mixer",
+                                           "CTRL", "FM-1 12F1", "FM-1", "Xkey Air 25", "NEAR", "ON", "AUTO"};
         uint32_t i, j, miss = 0;
-        bt_setup(BS_SCAN_LIST);
+        bt_setup(BS_DEVICES);
         pal(UI_GREY_INDEX);
         ui_style = 0;
         style_apply();
         bt_draw();
         for (i = 0; i < sizeof WANT / sizeof WANT[0]; i++) {
             for (j = 0; j < nscr && strcmp(scr[j].s, WANT[i]); j++) ;
-            if (j == nscr) { fprintf(rep, "FIND bt_scan_list does not show '%s'\n", WANT[i]); miss++; }
+            if (j == nscr) { fprintf(rep, "FIND bt_devices does not show '%s'\n", WANT[i]); miss++; }
         }
         nfind += miss;
     }
