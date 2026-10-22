@@ -35,6 +35,22 @@ static struct {
     ble_ui_dev_t adev[BT_SHOW];                     /* the ADD list as drawn: a pick takes these */
 } btp __attribute__((section(".pool")));
 
+/* the top bar's Bluetooth icon (ui_draw.c draw_head; design 5.6): 0 none (Bluetooth off), 1 struck (on, nothing linked:
+ * searching, reconnecting, the device role waiting), 2 lit (a link up) */
+static uint32_t bt_head_icon(void)
+{
+    ble_ui_slot_t x;
+    uint32_t i, st = ble_ui_state();
+    if (!btp.on)
+        return 0;
+    if (st == BLE_ST_SUBSCRIBED || st == BLE_ST_RECEIVING)
+        return 2;
+    for (i = 0; i < 2u; i++)
+        if (ble_ui_slot(i, &x) && x.st == BLE_LS_UP)
+            return 2;
+    return 1;
+}
+
 static uint32_t bt_page_rows(void) { return bt_role() ? BT_SET_ROWS : BT_SET_ROWS + bt_devs_n() + 1u; }
 
 /* a name as the screen can show it: the font's characters only (a device's name is any bytes) */

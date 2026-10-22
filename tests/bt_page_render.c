@@ -26,10 +26,11 @@ static void smc_in(uint32_t pkt) { (void)pkt; }
 #include "../firmware/src/bt_page.c"
 
 enum { BS_OFF, BS_STARTING, BS_NONE, BS_DEVICES, BS_SCROLLED, BS_FORGET, BS_ADD, BS_ADD_EMPTY, BS_FAILED, BS_ERROR, BS_REC,
-       BS_DEV_WAIT, BS_DEV_HOST, BS_COUNT };
+       BS_DEV_WAIT, BS_DEV_HOST, BS_HOME_STRUCK, BS_HOME_LIT, BS_HOME_OCT, BS_COUNT };
 static const char *const BS_NAME[BS_COUNT] = {"bt_off", "bt_starting", "bt_none", "bt_devices", "bt_scrolled", "bt_forget",
                                             "bt_add", "bt_add_empty", "bt_failed", "bt_error", "bt_rec",
-                                            "bt_device_waiting", "bt_device_host"};
+                                            "bt_device_waiting", "bt_device_host", "home_bt_struck", "home_bt_lit",
+                                            "home_bt_octave"};
 /* 23 bytes, some above 0x7F, some below 0x20: a name no label is like */
 static const char ODD[] = "W\xC3\x9CRFEL\x01KEYBOARD MK2 WWWWW";
 static void dev(uint32_t i, uint8_t a0, uint32_t type, int midi, int rssi, const char *name)   /* seen now */
@@ -131,6 +132,13 @@ static void bt_setup(int s)
         strcpy(conn_name, "5A:3C:91:0E:77:C2");
         break;
     }
+    case BS_HOME_STRUCK:                             /* HOME, the top bar: Bluetooth on, nothing linked */
+        btp.on = 1; bs.state = BLE_ST_IDLE; ui.menu = 0;
+        break;
+    case BS_HOME_LIT: btp.on = 1; bs.state = BLE_ST_IDLE; ui.menu = 0; up(BLE_SLOT_CTRL, 0x11); break;
+    case BS_HOME_OCT:                                /* lit, the octave shown beside it */
+        btp.on = 1; bs.state = BLE_ST_IDLE; ui.menu = 0; up(BLE_SLOT_CTRL, 0x11); song.octave = -2;
+        break;
     }
 }
 static void bt_draw(void)
@@ -166,7 +174,7 @@ int main(int argc, char **argv)
                 ui_style = (uint8_t)st;
                 style_apply();
                 bt_draw();
-                if (ui.menu != BT_MENU || ux.style != st) { fprintf(stderr, "bt_page_render: %s not drawn as set up\n", name); return 1; }
+                if (ui.menu != (s >= BS_HOME_STRUCK ? 0u : BT_MENU) || ux.style != st) { fprintf(stderr, "bt_page_render: %s not drawn as set up\n", name); return 1; }
                 lint();
                 mono_check();
                 shots++;

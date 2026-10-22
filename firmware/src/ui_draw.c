@@ -303,6 +303,21 @@ static int head_slot(char *b)
     return 1;
 }
 /* the octave, or the song row while a song plays, its right end at HEAD_GRP_R */
+#if FELUCCA_BLE
+static uint32_t bt_head_icon(void);                    /* bt_page.c: 0 none, 1 struck (on, nothing linked), 2 lit */
+static void draw_bt_icon(int32_t x, uint32_t k)        /* the rune in lines in the cell at x (11 px); struck: a diagonal */
+{
+    const int32_t cx = x + 5, t = 5, b = H_HEAD - 6;
+    uint16_t c = k > 1u ? T_THEME : T_MID;
+    cv_line(cx, t, cx, b, c);                          /* the spine, the two arrows on its right */
+    cv_line(cx, t, cx + 4, t + 4, c);
+    cv_line(cx + 4, t + 4, cx - 4, b - 4, c);
+    cv_line(cx, b, cx + 4, b - 4, c);
+    cv_line(cx + 4, b - 4, cx - 4, t + 4, c);
+    if (k == 1u)
+        cv_line(cx - 5, b + 1, cx + 5, t - 1, c);
+}
+#endif
 static void head_group(void)
 {
     char b[8];
@@ -310,11 +325,13 @@ static void head_group(void)
     if (chain.running) {
         fmt_int(b, (int32_t)chain.row + 1);
         x = HEAD_GRP_R - (16 + 4 + text_w(&AF_M, b));
+
         x += cv_icon_mid(x, H_HEAD / 2, 16, ICON_X_SONG, T_MID, T_BG);   /* SONG: the disc */
     } else {
         str_cpy(b, song.octave > 0 ? "+" : "", sizeof b);
         fmt_int(b + str_len(b), song.octave);
         x = HEAD_GRP_R - (text_w(&AF_S, "OCT") + 4 + text_w(&AF_M, b));
+
         GFX_HOOK_ALIGN(0, 0, 0, H_HEAD, AL_V, "header text on its middle");
         x = cv_text(x, HEAD_SY, &AF_S, "OCT", T_MID);
     }
@@ -338,6 +355,9 @@ static void draw_head(void)
                    (slot ? str_hash(11u, sl) : 0u) + (uint32_t)midi_lit(song.sel) * 15485863u;   /* (1.5.5) */
     int msg = ui.msg_t || ui.layer;
     int centre = !msg || ui.bpm_t || ui.layer == LAYER_GLO;   /* the BPM being changed: it stays, the message right */
+#if FELUCCA_BLE
+    sig += bt_head_icon() * 2654435761u;               /* (the Bluetooth icon: none, struck, lit) */
+#endif
     int32_t rx = HEAD_REC_X;
     if (song.g[G_BPM] != ui.roll_bpm) {
         char a[8];
@@ -381,6 +401,11 @@ static void draw_head(void)
         rx += 1;                                       /* (the REC mark's cell after it, its ink 3 px on) */
     }
     draw_rec_mark(rx, T_BG);
+#if FELUCCA_BLE
+    if ((centre || !msg) && bt_head_icon())            /* after the REC mark's cell (16 px), before the centre's group
+                                                        * (x 90 on); not under a message centred across */
+        draw_bt_icon(rx + 18, bt_head_icon());
+#endif
     if (centre) {
         int32_t ib[4], lx = g.bx + g.b[2];             /* lx: the right end of the BPM (and its lock) */
         uint32_t id = song.playing ? (chain.running ? ICON_X_SONG : ICON_X_PLAY) : seq_counting() ? ICON_X_PLAY : ICON_X_STOP;
@@ -410,6 +435,7 @@ static void draw_head(void)
         head_group();
     if (!(msg && centre))
         draw_battery(HEAD_BAT_X);
+
     cv_blit(0, Y_HEAD);
 }
 /* LINE: 1 px dividers in the BG gaps between the strips, not around them: under the header, above and

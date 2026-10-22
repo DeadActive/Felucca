@@ -51,6 +51,8 @@ acts on it, OCT- goes back to the menu, HOME closes the menu.
   `BT START TIMEOUT`); in ROLE DEVICE `WAITING FOR A HOST` or `CONNECTED` and the host. After FAILED only a power
   cycle starts it again. Under it: the last error.
 - The screen says `BT CONNECTED` and `BT LOST` (the controller's link, or the device role's).
+- The top bar (left, after the REC mark) shows the Bluetooth rune: lit while a link is up, struck through while
+  Bluetooth is on and nothing is linked, nothing while it is off.
 - AUTOSTART, ROLE, MODE and the saved devices are saved with the settings.
 
 ## Saved devices (ROLE HOST)

@@ -427,8 +427,25 @@ static void test_state_text(void)
     text_is("state: OFF once turned off (the stack idles)", "OFF");
 }
 
+static void test_icon_state(void)                    /* the top bar's Bluetooth icon (design 5.6) */
+{
+    fresh();
+    ok("icon_state: Bluetooth off -> none", bt_head_icon() == 0u);
+    k1(1);
+    bs.state = BLE_ST_IDLE;
+    ok("icon_state: on, nothing linked -> struck", bt_head_icon() == 1u);
+    up(BLE_SLOT_FM1, F1);
+    ok("icon_state: a link up -> lit", bt_head_icon() == 2u);
+    up(BLE_SLOT_FM1, 0);
+    bs.state = BLE_ST_RECEIVING;                     /* the device role: its host linked */
+    ok("icon_state: the device role linked -> lit", bt_head_icon() == 2u);
+    bs.state = BLE_ST_ADVERTISING;
+    ok("icon_state: the device role waiting -> struck", bt_head_icon() == 1u);
+}
+
 int main(void)
 {
+    test_icon_state();
     test_menu_row();
     test_rows_host();
     test_device_lines();
