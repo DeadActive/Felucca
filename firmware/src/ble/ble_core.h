@@ -26,6 +26,8 @@ void core_midi_out(uint32_t pkt);
 int core_flash_read(uint32_t off, void *buf, uint32_t n);
 /* audio: render blocks that missed the DMA since power-on (audio.c felucca_dbg.late), for the console's `ble` */
 uint32_t core_audio_late(void);
+/* the longest gap between two audio half interrupts since the last call, us (2902 normal: more, the audio held off) */
+uint32_t core_audio_gap_us(void);
 /* the core's UI frame counter (felucca_dbg.ui_frames: once per main-loop pass), for the loop period */
 uint32_t core_ui_frames(void);
 /* the core's crash record (fm1_irq.h fm1_crash_t, .noinit, same layout): read only, for the console's `ble`

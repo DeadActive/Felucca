@@ -1026,15 +1026,7 @@ BLE_CON void ble_status(void)                      /* console `ble` */
         o = put_u(put_s(b, "  starts "), ble_diag.starts);
         o = put_u(put_s(o, " stage "), ble_diag.stage);
         o = put_u(put_s(o, " task "), ble_diag.task);
-        o = put_u(put_s(o, " trim "), ble_diag.trim);
-        o = put_u(put_s(o, " delays "), ble_diag.delays);
-        o = put_u(put_s(o, " last_us "), ble_diag.last_us);
-        o = put_u(put_s(o, " t4_stalls "), ble_diag.t4_stalls);
         o = put_u(put_s(o, " irq_leaks "), ble_diag.irq_leaks);
-        o = put_u(put_s(o, " loops/us "), ble_loops_per_us);
-        o = put_x(put_x(put_x(put_x(put_s(o, " irqs 0x"), ble_irqs_requested[1] >> 8), ble_irqs_requested[1]),
-                        ble_irqs_requested[0] >> 24), ble_irqs_requested[0] >> 16);
-        o = put_x(put_x(o, ble_irqs_requested[0] >> 8), ble_irqs_requested[0]);
         o = put_s(o, "\r\n");
         *o = 0;
         core_con_puts(b);
@@ -1059,10 +1051,13 @@ BLE_CON void ble_status(void)                      /* console `ble` */
     o = put_u(put_s(b, "  loop last "), loop.last_ms);
     o = put_u(put_s(o, " ms, max "), loop.max_ms);
     o = put_u(put_s(o, " ms; longest BT task run "), ble_os_run_max_us(1));
-    o = put_s(o, " us (both since the last `ble`)\r\n");
+    o = put_u(put_s(o, " us; irq_off max "), fm1_ble_irq_max / 24u);   /* the libraries' longest interrupts-off */
+    o = put_u(put_s(o, " us; audio gap max "), core_audio_gap_us());   /* 2902 normal: more, the audio held off */
+    o = put_s(o, " us (all since the last `ble`)\r\n");
     *o = 0;
     core_con_puts(b);
     loop.max_ms = 0;
+    fm1_ble_irq_max = 0;
     for (i = 0; i < 4u; i++) {                     /* the task stacks' unused bytes */
         const char *name;
         uint32_t f = ble_os_stack_free(i, &name);

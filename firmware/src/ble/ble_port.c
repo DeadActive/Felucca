@@ -43,10 +43,10 @@ int strcmp(const char *a, const char *b)
 /* ---- interrupts: the libraries' critical sections nest; their radio IRQs go into our vector table ---- */
 void local_irq_disable(void) { fm1_ble_irq_off(); }
 void local_irq_enable(void) { fm1_ble_irq_on(); }
-void __local_irq_disable(void) { fm1_ble_irq_off(); }
-void __local_irq_enable(void) { fm1_ble_irq_on(); }
-void sys_local_irq_disable(void) { fm1_ble_irq_off(); }
-void sys_local_irq_enable(void) { fm1_ble_irq_on(); }
+void __local_irq_disable(void) __attribute__((alias("local_irq_disable")));   /* (one body each: the timing of */
+void __local_irq_enable(void) __attribute__((alias("local_irq_enable")));     /* the off stretches, fm1_ble_hal.h) */
+void sys_local_irq_disable(void) __attribute__((alias("local_irq_disable")));
+void sys_local_irq_enable(void) __attribute__((alias("local_irq_enable")));
 int cpu_irq_disabled(void) { return fm1_ble_irq_depth != 0; }
 int cpu_in_irq(void) { return 0; }                       /* (only CRC16's hardware path and asserts ask) */
 static uint32_t ble_irqs_requested[2];                   /* bit per index < 64, for the console */
@@ -58,10 +58,10 @@ void request_irq(unsigned char index, unsigned char priority, void (*handler)(vo
         priority = 2u;
         ble_diag.irq_lowered++;
     }
-    fm1_ble_irq_off();
+    local_irq_disable();
     core_irq_attach(index, handler, priority);           /* the SDK's handlers are interrupt functions (rti):
                                                           * checked in the link (fm1-lsdj docs/ble/LINK_NOTES.md) */
-    fm1_ble_irq_on();
+    local_irq_enable();
     if (index < 64u)
         ble_irqs_requested[index >> 5] |= 1u << (index & 31u);
 }
@@ -85,11 +85,11 @@ BLE_RAM static void ble_spin(uint32_t n)
 void ble_delay_calibrate(void)                           /* (interrupts off: they would only lengthen the run) */
 {
     uint32_t t0, dt;
-    fm1_ble_irq_off();
+    local_irq_disable();
     t0 = fm1_ble_ticks();
     ble_spin(100000);
     dt = fm1_ble_ticks() - t0;                           /* 24 ticks per us */
-    fm1_ble_irq_on();
+    local_irq_enable();
     if (dt)
         ble_loops_per_us = (100000u * FM1_TICKS_PER_US + dt - 1u) / dt;
 }
@@ -283,7 +283,7 @@ static void ble_irq_check(int task)
     if (fm1_ble_irq_depth) {
         ble_diag.irq_leaks++;
         fm1_ble_irq_depth = 1;
-        fm1_ble_irq_on();
+        local_irq_enable();
     }
 }
 
