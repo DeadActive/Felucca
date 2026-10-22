@@ -68,29 +68,32 @@ uint32_t ble_midi_room(void);                          /* the queue's free entri
 /* FM-Link out (main loop only): one message (at most 20 bytes) to the other FM-1 on its own characteristic (ble_gatt.c);
  * 1 = sent, 0 = not linked to an FM-1 or no room now */
 int ble_fml_send(const uint8_t *p, uint32_t len);
-int ble_fml_ready(void);                               /* a link FM-Link may go on (FM-Link's own, or the device's) */
-/* the Bluetooth page (main loop only). None of these starts the stack: the page's BLUETOOTH ON calls ble_user_start
- * (gate 3). States = ble_central.c's. Reconnecting (spec 3): want on + a target -> connect when the target is in the
- * scan list, else an auto scan, 2 s after the last scan end / link drop. */
+int ble_fml_ready(void);                               /* a link FM-Link may go on (the FM1 slot, or the device role's) */
+/* the Bluetooth page and the saved devices (main loop only). None of these starts the stack: the page's BLUETOOTH ON
+ * calls ble_user_start (gate 3). States = ble_central.c's. The host role holds two links, a slot each: CTRL (a
+ * controller: BLE-MIDI, MODE) and FM1 (another FM-1: FM-Link only); each is driven to the target the core sets
+ * (bt_devs.c), connected when the target is in the scan list (seen in the last 20 s), scanned for while it is not, and
+ * reconnected after a drop (docs/superpowers/specs/2026-10-22-bt-devices-design.md). */
 enum { BLE_ST_OFF, BLE_ST_STARTING, BLE_ST_IDLE, BLE_ST_SCANNING, BLE_ST_CONNECTING, BLE_ST_DISCOVERING,
        BLE_ST_SUBSCRIBED, BLE_ST_RECEIVING, BLE_ST_FAILED, BLE_ST_ADVERTISING };
-typedef struct { uint8_t addr[6], type, midi; int8_t rssi; char name[24]; } ble_ui_dev_t;
+typedef struct { uint8_t addr[6], type, midi; int8_t rssi; char name[24]; uint32_t seen_ms; } ble_ui_dev_t;
 uint32_t ble_ui_state(void);
 const char *ble_ui_err(uint32_t *code);                /* the last error text ("" none) and its code */
-uint32_t ble_ui_scan_left(void);                       /* SCANNING: whole seconds left (rounded up), else 0 */
-uint32_t ble_ui_devs(void);                            /* the scan list, ble_scan_sorted's order */
+uint32_t ble_ui_scan_left(void);                       /* a background scan: whole seconds of its window left */
+uint32_t ble_ui_devs(void);                            /* the scan list (seen in the last 30 s), strongest first */
 int ble_ui_dev(uint32_t i, ble_ui_dev_t *out);         /* 0 = no such entry */
-void ble_ui_scan(void);                    /* a 10 s scan: disconnects first (starts on IDLE); pauses reconnecting */
-void ble_ui_target(const uint8_t addr[6], uint32_t type);  /* the remembered device (all-zero none): ends the
-                                                          * pause; another device than the connected one disconnects */
-void ble_ui_want(int on);                  /* reconnecting wanted; 0 also disconnects, cancels a scan / connect */
-void ble_ui_pause(int on);                 /* the page's pause of reconnecting (0: the page closed) */
-int ble_ui_conn_name(char out[24]);        /* SUBSCRIBED / RECEIVING: 1 and the scanned name ("" none; the device
-                                            * role: the host's address); else 0 */
+enum { BLE_SLOT_CTRL, BLE_SLOT_FM1, BLE_SLOTS };
+enum { BLE_LS_IDLE, BLE_LS_CONNECTING, BLE_LS_DISCOVERING, BLE_LS_UP };
+typedef struct { uint8_t st, addr[6], type; uint8_t last_reason; uint16_t drops; char name[24]; } ble_ui_slot_t;
+void ble_ui_slot_target(uint32_t slot, const uint8_t addr[6], uint32_t type);   /* all-zero addr: none; another address
+                                                                               * than the linked one drops it */
+int ble_ui_slot(uint32_t slot, ble_ui_slot_t *out);   /* its state, its address (linked, else its target), its name */
+void ble_ui_scan_want(int on);             /* the core wants scanning (the page's list, a better device to find); the
+                                            * unit also scans by itself for a target not listed */
+void ble_ui_want(int on);                  /* BLUETOOTH ON: links wanted; 0 drops them, stops a scan / connect */
+int ble_ui_conn_name(char out[24]);        /* the CTRL slot up (the device role: its host): 1 and the scanned name ("" none;
+                                            * the device role: the host's address); else 0 */
 void ble_ui_role(int device);              /* ROLE: 0 HOST (scan, connect: the central), 1 DEVICE (advertise: a host
                                             * connects to the FM-1). Applied once no scan, link or advertising is on */
 uint32_t ble_ui_role_now(void);            /* the role in effect */
-void ble_ui_link(int on);                  /* ROLE HOST + LINK: beside the device's link, a second one to another FM-1
-                                            * (found by its name), FM-Link only */
-uint32_t ble_ui_link_state(void);          /* FM-Link's own link: 0 off, 1 looking for an FM-1, 2 linked */
 #endif

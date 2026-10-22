@@ -63,13 +63,14 @@ void ble_service(void)                             /* the main loop (ed_service)
     ble_os_service(5000);
     ble_diag.heap_high = ble_os_heap_high();       /* (.noinit: kept over a crash reboot, for the heap's size) */
     ble_diag.alloc_fails = ble_os_alloc_fails();
-    ble_tick();                                    /* deadlines: scan end, start / connect / discovery timeouts */
-    ble_auto();                                    /* link up / down to the core; reconnecting (ble_auto_step) */
+    ble_tick();                                    /* the start's deadline */
+    ble_auto();                                    /* the role; the host's slots and scanner or the device role; the
+                                                    * MIDI link up / down to the core */
     ble_out_flush();                               /* MIDI out (ble_midi_send) as write-without-response packets */
     while (ble_midi_take(&pkt))                    /* to the core while linked (after core_ble_link(1)); a drop's */
         if (ble_linked())                          /* leftovers are discarded (the core heard core_ble_link(0)) */
             core_ble_midi_in(pkt);
     for (; fq_t != fq_h; fq_t++)                   /* FM-Link in, with the tick each came at (the same while linked) */
-        if (ble_linked())
+        if (ble_fml_ready())
             core_fml_rx(fq[fq_t & 15u].b, fq[fq_t & 15u].len, fq[fq_t & 15u].t);
 }

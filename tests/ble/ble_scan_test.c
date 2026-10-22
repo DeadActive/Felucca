@@ -38,13 +38,13 @@ int main(void)
         cnt = ble_scan_sorted(&s, idx);
         CHECK(cnt == 2 && !strcmp(s.dev[idx[1]].name, "KEYS") && !s.dev[idx[1]].midi, "scan response name merged");
     }
-    /* fill to 16 with weak devices, then a strong new one replaces the weakest */
+    /* fill to BLE_SCAN_MAX with weak devices, then a strong new one replaces the weakest */
     for (k = 0; k < 20; k++) {
         uint8_t c[6] = {0xAA, (uint8_t)k, 0, 0, 0, 0};
         ble_scan_report(&s, c, 0, (int8_t)(-90 - (int)(k % 5)), ad, 3, 0);
     }
     cnt = ble_scan_sorted(&s, idx);
-    CHECK(cnt == BLE_SCAN_MAX, "capped at 16");
+    CHECK(cnt == BLE_SCAN_MAX, "capped at BLE_SCAN_MAX");
     {
         uint8_t c[6] = {0xBB, 0, 0, 0, 0, 0};
         ble_scan_report(&s, c, 0, -40, ad, 3, 0);

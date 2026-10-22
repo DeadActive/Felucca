@@ -14,7 +14,7 @@
  * remembered device are saved at once (bt_set.c). Main loop only. */
 #define BT_ROWS 6u                                  /* BLUETOOTH AUTOSTART ROLE MODE DEVICE SCAN, then the devices */
 #define BT_DEV_ROWS 4u                              /* ROLE DEVICE: BLUETOOTH AUTOSTART ROLE MODE only */
-#define BT_SHOW 8u                                  /* devices listed (the scan keeps 16) */
+#define BT_SHOW 8u                                  /* devices listed (the scan keeps 12) */
 #define BT_VIS 2u                                   /* device rows in view (the cursor scrolls them) */
 #define BT_SY 27                                    /* the state line's panel; the last error under it */
 #define BT_SH 20
@@ -71,6 +71,11 @@ static void bt_dev_text(char *o)                    /* DEVICE: the name once see
         bt_addr_txt(o, s.addr, 1);
 }
 
+static int bt_fm1_up(void)                          /* the FM1 slot's link is up */
+{
+    ble_ui_slot_t x;
+    return ble_ui_slot(BLE_SLOT_FM1, &x) && x.st == BLE_LS_UP;
+}
 static void bt_state_text(char *o)                  /* the state line (40 B) */
 {
     static const char *const ST[] = {"OFF", "STARTING", "IDLE", "SCANNING ", "CONNECTING", "CONNECTING",
@@ -93,10 +98,10 @@ static void bt_state_text(char *o)                  /* the state line (40 B) */
             raw[23] = 0, bt_name(t, raw, sizeof t);
         else
             bt_dev_text(t);
-        if (btp.on && ble_ui_link_state() == 2u)   /* both links: FM-1 first (a long name is cut, not the FM-1) */
+        if (btp.on && bt_fm1_up())                 /* both links: FM-1 first (a long name is cut, not the FM-1) */
             n = 0, str_cpy(o, "FM-1 + ", 40), n = str_len(o);
         str_cpy(o + n, t, 40 - n);
-    } else if (btp.on && st == BLE_ST_IDLE && ble_ui_link_state() == 2u) {
+    } else if (btp.on && st == BLE_ST_IDLE && bt_fm1_up()) {
         str_cpy(o, "LINKED FM-1", 40);             /* FM-Link's own link only (ROLE HOST + LINK) */
     }
 }
@@ -169,8 +174,7 @@ __attribute__((noinline)) static void bt_page_on(void)
     btp.on = 1;
     bt_set_get(&s);
     ble_ui_role(s.role);                            /* (applied once the stack is up and idle) */
-    ble_ui_link(s.link && !s.role);
-    ble_ui_target(s.addr, s.type);
+    ble_ui_slot_target(BLE_SLOT_CTRL, s.addr, s.type);
     ble_ui_want(1);
     if (ble_ui_state() == BLE_ST_OFF)
         ble_user_start();
@@ -221,7 +225,7 @@ static void bt_pick(const ble_ui_dev_t *d)          /* a device row, OCT+: remem
     bt_set_put(&s);
     str_cpy(btp.dname, d->name, sizeof btp.dname);
     btp.on = 1;
-    ble_ui_target(s.addr, s.type);
+    ble_ui_slot_target(BLE_SLOT_CTRL, s.addr, s.type);
     ble_ui_want(1);
 }
 
@@ -233,7 +237,7 @@ static void bt_forget(void)                         /* DEVICE, a knob left: none
     s.type = 0;
     bt_set_put(&s);
     btp.dname[0] = 0;
-    ble_ui_target(s.addr, 0);
+    ble_ui_slot_target(BLE_SLOT_CTRL, s.addr, 0);
 }
 
 static void bt_page_open(void)                      /* MENU > SYSTEM > BLUETOOTH, OCT+ */
@@ -245,7 +249,7 @@ static void bt_page_open(void)                      /* MENU > SYSTEM > BLUETOOTH
 
 static void bt_page_close(void)                     /* OCT- or HOME: reconnecting goes on */
 {
-    ble_ui_pause(0);
+    ble_ui_scan_want(0);
 }
 
 static void bt_page_input(uint32_t oct)             /* oct: ui_input.c oct_taps (bit 0 OCT-, bit 1 OCT+) */
@@ -291,7 +295,6 @@ static void bt_page_input(uint32_t oct)             /* oct: ui_input.c oct_taps 
             set.role = (uint8_t)(k == 2u);
             set.link = (uint8_t)(k == 1u);
             bt_set_put(&set);
-            ble_ui_link(set.link);
             if (set.role != (v == 2u)) {
                 ble_ui_role(set.role);              /* (the BLE unit ends a scan, a link or advertising, then switches) */
                 btp.n = btp.top = 0;
@@ -318,7 +321,7 @@ static void bt_page_input(uint32_t oct)             /* oct: ui_input.c oct_taps 
         else if (ok && !btp.on)
             ui_message("BLUETOOTH IS OFF");
         else if (ok)
-            ble_ui_scan();
+            ble_ui_scan_want(1);
         break;
     default:
         if (ok && !bt_role() && btp.sel - BT_ROWS < btp.n && st != BLE_ST_FAILED)

@@ -217,7 +217,8 @@ static struct {
     uint8_t msg[64][3], len[64];
     uint32_t h, t, sent, drops;                     /* sent / drops: the console's `out` / `out_drops` */
 } mo;
-static int ble_linked(void) { return st == BLE_SUBSCRIBED || st == BLE_RECEIVING; }
+static uint8_t ctrl_up;                             /* the host role: the CTRL slot is up (the glue) */
+static int ble_linked(void) { return st == BLE_SUBSCRIBED || st == BLE_RECEIVING || ctrl_up; }   /* MIDI's link */
 static void ble_ev(ble_ev_t ev)                     /* every event's state change; the queue lives only while linked */
 {
     st = ble_next(st, ev);
@@ -259,135 +260,88 @@ static void ble_out_drain(uint32_t now_ms, int (*tx)(const uint8_t *pkt, uint32_
     }
 }
 
-/* ---- reconnecting (spec 3): one decision per ble_service pass, applied by ble_auto (the glue) ---- */
-enum { BA_NONE, BA_SCAN, BA_CONNECT, BA_STOP_SCAN, BA_DISCONNECT };
+/* ---- the host role: two link slots, CTRL (a controller: BLE-MIDI, MODE) and FM1 (another FM-1: FM-Link only), each
+ * driven to the target address the core sets (bt_devs.c: the saved devices, the user's pick order), and one scanner
+ * beside them (docs/superpowers/specs/2026-10-22-bt-devices-design.md). One decision per ble_service pass
+ * (ble_host_step), applied by ble_host (the glue). One connect or discovery at a time, never beside a scan; a scan
+ * runs beside links, never drops one ---- */
+enum { HS_IDLE, HS_CONNECTING, HS_DISCOVERING, HS_UP };
+enum { BH_NONE, BH_SCAN_ON, BH_SCAN_OFF, BH_CONNECT, BH_CANCEL, BH_DROP };
 typedef struct {
-    uint8_t want;                                   /* the page's BLUETOOTH ON (ble_ui_want) */
-    uint8_t paused;                                 /* the page's manual scan: no auto scan / connect until a pick */
-    uint8_t have, addr[6], type;                    /* the remembered device (ble_ui_target) */
-    uint8_t manual;                                 /* the running scan is the page's or the console's: never cut */
-    uint8_t scan_req;                               /* ble_ui_scan: a manual scan once IDLE (after a disconnect) */
-    uint8_t tried;                                  /* a connect tried since the last scan start: one per sighting */
-    uint8_t console;                                /* the link is the console's `ble connect`: want leaves it */
-    uint8_t dropping;                               /* a disconnect asked for this link: not again */
-    uint8_t sighted;                                /* the target listed in this scan, since sighted_ms */
-    uint32_t seen;                                  /* the state at the last ble_watch */
-    uint32_t sighted_ms;
-    uint32_t rest_ms;                               /* the last scan end / link drop: auto scans 2 s after it */
-} ble_auto_t;
-static int ble_live(uint32_t s) { return s >= BLE_CONNECTING && s <= BLE_RECEIVING; }
-/* how ble_disconnect asks: CONNECTING cancels the connect (con_handle may still hold a failed link's handle until
- * its disconnection-complete event); DISCOVERING..RECEIVING disconnect the handle */
-enum { BD_NONE, BD_CANCEL, BD_DISC };
-uint32_t ble_disc_how(uint32_t s, uint32_t handle)
-{
-    return s == BLE_CONNECTING ? BD_CANCEL : ble_live(s) && handle ? BD_DISC : BD_NONE;
-}
-/* target_listed: 0 no, 1 listed without a name yet, 2 listed with its name. An auto scan stops for the target once
- * its name is in (the scan response, which AUTO's SMC test reads at link up) or 500 ms after its first listing */
-uint32_t ble_auto_step(const ble_auto_t *a, uint32_t state, int target_listed, uint32_t now_ms)
-{
-    if (state == BLE_IDLE && a->scan_req)
-        return BA_SCAN;
-    if (!a->want)
-        return ble_live(state) && !a->console && !a->dropping ? BA_DISCONNECT : BA_NONE;
-    if (!a->have || a->paused)
-        return BA_NONE;
-    if (state == BLE_IDLE)
-        return target_listed && !a->tried ? BA_CONNECT : now_ms - a->rest_ms >= 2000u ? BA_SCAN : BA_NONE;
-    if (state == BLE_SCANNING && !a->manual && target_listed && !a->tried &&
-        (target_listed > 1 || (a->sighted && now_ms - a->sighted_ms >= 500u)))
-        return BA_STOP_SCAN;
-    return BA_NONE;
-}
-void ble_sight(ble_auto_t *a, int listed, uint32_t now_ms)   /* ble_service, scanning: the target's first listing */
-{
-    if (listed && !a->sighted) {
-        a->sighted = 1;
-        a->sighted_ms = now_ms;
-    }
-}
-/* ble_service, before the step: link up / down to the core (core_ble_link, once each), the rest times, the flags
- * that end with a scan or a link */
-static void ble_watch(ble_auto_t *a, uint32_t now_ms)
-{
-    uint32_t was = a->seen, up = ble_linked(), wasup = was == BLE_SUBSCRIBED || was == BLE_RECEIVING;
-    if (up != wasup)
-        core_ble_link((int)up);
-    if (st == BLE_SCANNING && was != BLE_SCANNING)
-        a->tried = a->sighted = 0;
-    if (was == BLE_SCANNING && st != BLE_SCANNING) {
-        a->rest_ms = now_ms;
-        a->manual = 0;
-    }
-    if (ble_live(was) && !ble_live(st))
-        a->rest_ms = now_ms;
-    if (!ble_live(st))
-        a->console = a->dropping = 0;
-    a->seen = st;
-}
-
-/* ---- FM-Link's own link (ROLE HOST + LINK, ble_ui_link): a second link as the central, beside the device's, to
- * another FM-1, for FM-Link only. The FM-1 is found by its scanned name, "Felucca FM-1" (its address is new at each
- * start: none is remembered). It scans and connects only while the device's link is not scanning, connecting or
- * discovering and the page's list is not in use, and holds the device's scans and connects back while it does: one
- * scan, one connect, one discovery at a time. While the device's link scans by itself (a target, wanted), its lists
- * serve. One decision per ble_service pass (ble_lnk_step), applied by ble_lnk (the glue) ---- */
-enum { BL_IDLE, BL_SCANNING, BL_CONNECTING, BL_DISCOVERING, BL_UP };
-enum { BLA_NONE, BLA_SCAN, BLA_STOP_SCAN, BLA_CONNECT, BLA_CANCEL, BLA_DROP };
-typedef struct {
-    uint8_t want;                                   /* HOST + LINK, Bluetooth wanted, the stack up, no role switch */
-    uint8_t st;                                     /* BL_* */
-    uint8_t tried;                                  /* a connect tried since the list was made: one per list */
-    uint8_t found;                                  /* its scan ended on an FM-1: connect without the rest */
+    uint8_t st;                                     /* HS_* */
+    uint8_t target;                                 /* a target is set */
+    uint8_t listed;                                 /* .. and it is in the scan list, seen in the last 20 s */
+    uint8_t mismatch;                               /* linked / connecting to another address than its target (or
+                                                     * to none) */
+    uint8_t tried;                                  /* a connect to it failed and it has not been seen since */
     uint8_t dropping;                               /* a disconnect asked for: not again */
-    uint32_t rest_ms;                               /* the last scan end, failed connect or link drop */
-    uint32_t deadline_ms;                           /* SCANNING / CONNECTING / DISCOVERING: given up then */
-} ble_lnk_t;
-static int ble_lnk_busy(const ble_lnk_t *l)
+    uint32_t rest_ms;                               /* no connect before (2 s after a failure or a drop) */
+    uint32_t deadline_ms;                           /* CONNECTING / DISCOVERING: given up then */
+} ble_hslot_t;
+typedef struct {
+    ble_hslot_t s[2];
+    uint8_t want;                                   /* BLUETOOTH ON, the host role, the stack up */
+    uint8_t scan_on, scan_want;                     /* scanning; the core wants a scan (the page, a better device) */
+    uint32_t scan_until, scan_rest;                 /* a background scan's window end; its rest's end */
+} ble_host_t;
+static int ble_due(uint32_t now, uint32_t at) { return (int32_t)(now - at) >= 0; }
+/* the next action and its slot (*slot) */
+uint32_t ble_host_step(const ble_host_t *h, uint32_t now_ms, uint32_t *slot)
 {
-    return l->st == BL_SCANNING || l->st == BL_CONNECTING || l->st == BL_DISCOVERING;
-}
-/* main: the device link's state; main_scans: it scans by itself; ui: the page's scan or its pause (the list is the
- * page's); fm1: an FM-1 listed by name (not the device's link) */
-uint32_t ble_lnk_step(const ble_lnk_t *l, uint32_t main, int main_scans, int ui, int fm1, uint32_t now_ms)
-{
-    int late = (int32_t)(now_ms - l->deadline_ms) >= 0, rested = now_ms - l->rest_ms >= 2000u;
-    int free_ = (main == BLE_IDLE || main == BLE_SUBSCRIBED || main == BLE_RECEIVING) && !ui;
-    switch (l->st) {
-    case BL_IDLE:
-        if (!l->want || !free_)
-            return BLA_NONE;
-        if (fm1 && !l->tried && (l->found || rested))
-            return BLA_CONNECT;
-        return !main_scans && rested ? BLA_SCAN : BLA_NONE;
-    case BL_SCANNING:
-        return !l->want || ui || fm1 || late ? BLA_STOP_SCAN : BLA_NONE;
-    case BL_CONNECTING:
-        return !l->want || late ? BLA_CANCEL : BLA_NONE;
-    case BL_DISCOVERING:
-        return (!l->want || late) && !l->dropping ? BLA_DROP : BLA_NONE;
-    default:                                        /* BL_UP */
-        return !l->want && !l->dropping ? BLA_DROP : BLA_NONE;
+    uint32_t i;
+    int busy = 0, unlisted = 0, need;
+    for (i = 0; i < 2u; i++) {
+        const ble_hslot_t *s = &h->s[i];
+        int off = !h->want || s->mismatch;
+        *slot = i;
+        if (s->st == HS_CONNECTING && (off || ble_due(now_ms, s->deadline_ms)))
+            return BH_CANCEL;
+        if (!s->dropping && ((s->st == HS_DISCOVERING && (off || ble_due(now_ms, s->deadline_ms))) ||
+                             (s->st == HS_UP && off)))
+            return BH_DROP;
+        busy |= s->st == HS_CONNECTING || (s->st == HS_DISCOVERING && !s->dropping);
     }
+    if (busy)
+        return h->scan_on ? BH_SCAN_OFF : BH_NONE;
+    for (i = 0; i < 2u; i++) {
+        const ble_hslot_t *s = &h->s[i];
+        if (h->want && s->st == HS_IDLE && s->target && s->listed && !s->tried && ble_due(now_ms, s->rest_ms)) {
+            *slot = i;
+            return h->scan_on ? BH_SCAN_OFF : BH_CONNECT;
+        }
+        unlisted |= s->st == HS_IDLE && s->target && (!s->listed || s->tried);
+    }
+    need = h->want && (h->scan_want || unlisted);
+    if (h->scan_on)
+        return !need || (!h->scan_want && ble_due(now_ms, h->scan_until)) ? BH_SCAN_OFF : BH_NONE;
+    return need && (h->scan_want || ble_due(now_ms, h->scan_rest)) ? BH_SCAN_ON : BH_NONE;
 }
 
 #ifndef BLE_CENTRAL_STATE_ONLY
 /* ---- the SDK glue: in ble.c's unit, after ble_heap / ble_on / ble_mac. The stack calls ble_profile_init and the
- * three handlers below from its own task (ble_os.c); the main loop calls ble_start / ble_scan / ble_connect /
- * ble_disconnect / ble_tick. Both run on the same CPU, one at a time, so they share these without locking. ---- */
+ * three handlers below from its own task (ble_os.c); the main loop calls ble_start, ble_tick and ble_auto (the host's
+ * slots, the device role). Both run on the same CPU, one at a time, so they share these without locking. ---- */
 #include "ble/ble_sdk.h"
 #define ATT_MTU 128u                                /* le_net_central.c ATT_LOCAL_MTU_SIZE */
 
 static ble_scan_t scan;
 static ble_midi_t bm;
-static uint16_t con_handle, midi_handle;
-static uint8_t conn_addr[6], conn_type;             /* the device connected to (the central): its address, */
-static char conn_name[24];                          /* its scanned name (the list is made afresh while linked) */
+static uint16_t con_handle;                         /* the device role: the host's link */
 static uint8_t role_want, role_now;                 /* the device role (1) or the central's (0): wanted, in effect */
-static ble_lnk_t lk;                                /* FM-Link's own link (ROLE HOST + LINK) */
-static uint16_t lk_con, lk_fml;                     /* its connection, the FM-1's FM-Link characteristic */
-static uint8_t lk_addr[6], lk_ui;                   /* the address it connects to; HOST + LINK (ble_ui_link) */
+static uint8_t want;                                /* BLUETOOTH ON: links wanted (ble_ui_want) */
+static ble_host_t hs;                               /* the host role: its two slots and its scanner (ble_host_step) */
+static struct {
+    uint16_t con, midi, fml;                        /* its link; the BLE-MIDI (CTRL) / FM-Link (FM1) value handles */
+    uint8_t addr[6], type;                          /* the address linked or being connected to */
+    uint8_t tgt[6], tgt_type;                       /* its target (ble_ui_slot_target; all-zero: none) */
+    uint8_t fail;                                   /* a connect / discovery failed: not again until seen anew */
+    uint8_t last_reason;                            /* the HCI reason of its last disconnect */
+    uint32_t fail_seen;                             /* the target's last sighting when it failed */
+    uint16_t drops, tries;                          /* links lost; connects tried */
+    char name[24];                                  /* the scanned name, at the connect */
+} sl[2];
+static uint8_t disc_slot;                           /* the slot whose discovery runs (one at a time) */
+static uint32_t console_scan_until;                 /* the console's `ble scan`: one window */
 static uint8_t peer[6];                             /* the device role: the host's address, for the page */
 static uint32_t deadline_ms;
 static const char *err_text = "";                   /* the last error (ble_err) */
@@ -399,8 +353,6 @@ static uint32_t ring[64], ring_h, ring_t, ring_lost;   /* BLE-MIDI as USB-MIDI p
  * two FM-1s is measured from these), to the main loop (ble_service: core_fml_rx); out by ble_fml_send */
 static struct { uint32_t t; uint8_t len, b[20]; } fq[16];   /* (8 overflowed with two links: `lost`, 2026-10-22) */
 static uint32_t fq_h, fq_t, fq_lost, fml_in, fml_out;
-static uint16_t fml_handle;                         /* the central: the device's FM-Link characteristic (0: none, a
-                                                     * plain BLE-MIDI device) */
 static uint8_t fml_heard;                           /* the device role: the host wrote to FM-Link (it is an FM-1: it
                                                      * takes FM-Link notifications) */
 
@@ -438,16 +390,30 @@ int ble_midi_take(uint32_t *pkt)
     return 1;
 }
 
+static int ble_slot_of(uint16_t h)                 /* the host slot of a link handle, -1 none */
+{
+    return h && h == sl[0].con ? 0 : h && h == sl[1].con ? 1 : -1;
+}
+static void ble_slot_failed(uint32_t i)            /* a connect / discovery that failed: rest, not again until seen */
+{
+    uint32_t k;
+    sl[i].fail = 1;
+    sl[i].fail_seen = 0;
+    for (k = 0; k < BLE_SCAN_MAX; k++)
+        if (scan.dev[k].used && !memcmp(scan.dev[k].addr, sl[i].tgt, 6))
+            sl[i].fail_seen = scan.dev[k].seen_ms;
+}
 static void cbk_packet_handler(uint8_t type, uint16_t channel, uint8_t *packet, uint16_t size)
 {
     uint16_t h;
+    int i;
     (void)channel;
     (void)size;
     if (type != BLE_SDK_HCI_EVENT_PACKET)
         return;
     switch (packet[0]) {
     case BLE_SDK_GAP_EVENT_ADVERTISING_REPORT:  /* one report: le_net_central.c 960 */
-        if (st == BLE_SCANNING || lk.st == BL_SCANNING) {
+        if (hs.scan_on) {
             const adv_report_t *r = (const adv_report_t *)(const void *)&packet[2];
             ble_scan_report(&scan, r->address, r->address_type, r->rssi, r->data, r->length, core_ms());
         }
@@ -473,65 +439,60 @@ static void cbk_packet_handler(uint8_t type, uint16_t channel, uint8_t *packet, 
             ble_ev(EV_CONNECTED);
             break;
         }
-        if (lk.st == BL_CONNECTING && (packet[3] || !memcmp(&packet[8], lk_addr, 6))) {   /* FM-Link's link */
-            if (packet[3]) {
-                lk.st = BL_IDLE;
-                lk.rest_ms = core_ms();
+        for (i = 0; i < 2; i++)                    /* the slot connecting (one at a time), by the address it asked */
+            if (hs.s[i].st == HS_CONNECTING && (packet[3] || !memcmp(&packet[8], sl[i].addr, 6)))
                 break;
-            }
-            lk_con = h;
-            lk_fml = 0;
-            lk.dropping = 0;
-            ble_op_multi_att_send_conn_handle(lk_con, 1, 1);   /* (index 1, the client's) */
-            user_client_init(lk_con, search_ram, sizeof search_ram);
-            lk.st = BL_DISCOVERING;
-            lk.deadline_ms = core_ms() + 10000u;
-            ble_op_search_profile_all();
+        if (i == 2) {
+            if (!packet[3])
+                ble_op_disconnect(h);              /* (completed after a cancel: not wanted) */
             break;
         }
         if (packet[3]) {
-            if (st == BLE_CONNECTING) {
-                set_err("CONNECT FAILED", packet[3]);
-                ble_ev(EV_CONN_FAIL);
-            }
+            set_err("CONNECT FAILED", packet[3]);
+            hs.s[i].st = HS_IDLE;
+            hs.s[i].rest_ms = core_ms() + 2000u;
+            ble_slot_failed((uint32_t)i);
             break;
         }
-        if (st != BLE_CONNECTING || memcmp(&packet[8], conn_addr, 6)) {   /* completed after a cancel: not wanted */
-            ble_op_disconnect(h);
-            break;
-        }
-        con_handle = h;
-        midi_handle = 0;
-        fml_handle = 0;
-        ble_midi_reset(&bm);
-        ble_op_multi_att_send_conn_handle(con_handle, 0, 1);   /* (index 0, the client's) */
-        user_client_init(con_handle, search_ram, sizeof search_ram);
+        sl[i].con = h;
+        sl[i].midi = sl[i].fml = 0;
+        hs.s[i].dropping = 0;
+        if (i == 0)
+            ble_midi_reset(&bm);
+        ble_op_multi_att_send_conn_handle(h, i, 1);   /* (client index: the slot) */
+        user_client_init(h, search_ram, sizeof search_ram);
+        disc_slot = (uint8_t)i;
+        hs.s[i].st = HS_DISCOVERING;
+        hs.s[i].deadline_ms = core_ms() + 10000u;
         ble_op_search_profile_all();
-        ble_ev(EV_CONNECTED);
-        set_deadline(10000);
         break;
     case BLE_SDK_HCI_EVENT_DISCONNECTION_COMPLETE:   /* le_net_central.c 917: handle packet[3..4], reason packet[5] */
         h = (uint16_t)(packet[3] | packet[4] << 8);
-        if (lk_con && h == lk_con) {               /* FM-Link's link */
-            lk_con = lk_fml = 0;
-            lk.dropping = 0;
-            ble_op_multi_att_send_conn_handle(0, 1, 1);
-            lk.st = BL_IDLE;
-            lk.rest_ms = core_ms();
+        if ((i = ble_slot_of(h)) >= 0) {           /* a host slot's link */
+            if (hs.s[i].st == HS_DISCOVERING && !hs.s[i].dropping)
+                ble_slot_failed((uint32_t)i);
+            sl[i].drops += hs.s[i].st == HS_UP;
+            sl[i].last_reason = packet[5];
+            sl[i].con = sl[i].midi = sl[i].fml = 0;
+            ble_op_multi_att_send_conn_handle(0, i, 1);
+            hs.s[i].st = HS_IDLE;
+            hs.s[i].dropping = 0;
+            hs.s[i].rest_ms = core_ms() + 2000u;
+            if (i == 0) {
+                ctrl_up = 0;
+                mo.t = mo.h;                       /* (MIDI out lives only while linked) */
+            }
             break;
         }
         if (!con_handle || h != con_handle)
-            break;                                 /* (a link dropped as not wanted, never the device's) */
-        if (st >= BLE_CONNECTING && st <= BLE_RECEIVING)
+            break;
+        if (st >= BLE_CONNECTING && st <= BLE_RECEIVING)   /* the device role's host link */
             set_err("DISCONNECTED", packet[5]);
-        if (role_now)
-            multi_att_clear_ccc_config(con_handle);
-        ble_op_multi_att_send_conn_handle(0, 0, role_now ? 0 : 1);
+        multi_att_clear_ccc_config(con_handle);
+        ble_op_multi_att_send_conn_handle(0, 0, 0);
         con_handle = 0;
-        midi_handle = 0;
-        fml_handle = 0;
         fml_heard = 0;
-        ble_ev(EV_DISCONNECTED);                   /* (the device role: IDLE, then ble_dev advertises again) */
+        ble_ev(EV_DISCONNECTED);                   /* (IDLE, then ble_dev advertises again) */
         break;
     default:
         break;
@@ -622,55 +583,40 @@ static void sm_cb(uint8_t type, uint16_t channel, uint8_t *packet, uint16_t size
 /* the stack's GATT client reports (client_user.c weak defaults): le_net_central.c 386-415 and 453-480 */
 void user_client_report_search_result(search_result_t *r)
 {
-    if (lk.st == BL_DISCOVERING) {                 /* FM-Link's link: the FM-1's FM-Link characteristic only */
-        if (r == 0 || r == (search_result_t *)-1) {
-            if (lk_fml) {
-                lk.st = BL_UP;
-            } else if (!lk.dropping) {
-                lk.dropping = 1;
-                ble_op_disconnect(lk_con);         /* (not an FM-1 with FM-Link: its drop makes it BL_IDLE) */
-            }
-            return;
-        }
-        if (!r->characteristic.uuid16 && ble_is_fml_char(r->characteristic.uuid128))
-            lk_fml = r->characteristic.value_handle;
-        return;
-    }
-    if (st != BLE_DISCOVERING)
+    uint32_t i = disc_slot;
+    if (role_now || hs.s[i].st != HS_DISCOVERING)
         return;
     if (r == 0 || r == (search_result_t *)-1) {  /* (void *)-1: the search is over */
-        if (midi_handle) {
+        if (i == 0 && sl[0].midi) {
             static const uint8_t on[2] = {1, 0};   /* notifications on: the CCCD after the value */
-            ble_op_multi_att_send_data(con_handle, midi_handle + 1u, (void *)on, 2, BLE_SDK_ATT_OP_WRITE);
-            ble_ev(EV_FOUND_MIDI);
-        } else {
-            set_err("NO BLE-MIDI SERVICE", 0);
-            ble_op_disconnect(con_handle);
-            ble_ev(EV_NO_MIDI);
+            ble_op_multi_att_send_data(sl[0].con, sl[0].midi + 1u, (void *)on, 2, BLE_SDK_ATT_OP_WRITE);
+            hs.s[0].st = HS_UP;
+            ctrl_up = 1;
+        } else if (i == 1 && sl[1].fml) {
+            hs.s[1].st = HS_UP;                    /* (FM-Link: the FM-1 notifies once written to) */
+        } else if (!hs.s[i].dropping) {
+            set_err(i ? "NO FM-LINK" : "NO BLE-MIDI SERVICE", 0);
+            ble_slot_failed(i);
+            hs.s[i].dropping = 1;
+            ble_op_disconnect(sl[i].con);
         }
         return;
     }
     if (!r->characteristic.uuid16 && ble_is_midi_char(r->characteristic.uuid128))
-        midi_handle = r->characteristic.value_handle;
+        sl[i].midi = r->characteristic.value_handle;
     else if (!r->characteristic.uuid16 && ble_is_fml_char(r->characteristic.uuid128))
-        fml_handle = r->characteristic.value_handle;   /* (another FM-1: its notifications come once it is written to) */
+        sl[i].fml = r->characteristic.value_handle;
 }
 
 void user_client_report_data_callback(att_data_report_t *d)
 {
-    if (lk_con && d->conn_handle == lk_con) {      /* FM-Link's link: FM-Link only */
-        if (d->packet_type == BLE_SDK_GATT_EVENT_NOTIFICATION && lk.st == BL_UP && d->value_handle == lk_fml)
-            fml_put(d->blob, d->blob_length);
+    int i = ble_slot_of(d->conn_handle);
+    if (d->packet_type != BLE_SDK_GATT_EVENT_NOTIFICATION || i < 0 || hs.s[i].st != HS_UP)
         return;
-    }
-    if (d->packet_type == BLE_SDK_GATT_EVENT_NOTIFICATION && midi_handle && d->value_handle == midi_handle &&
-        (st == BLE_SUBSCRIBED || st == BLE_RECEIVING)) {
+    if (i == 0 && d->value_handle == sl[0].midi)
         ble_midi_parse(&bm, d->blob, d->blob_length, ring_put, 0);
-        ble_ev(EV_NOTIFY);
-    } else if (d->packet_type == BLE_SDK_GATT_EVENT_NOTIFICATION && fml_handle && d->value_handle == fml_handle &&
-               (st == BLE_SUBSCRIBED || st == BLE_RECEIVING) && lk.st != BL_UP) {   /* (FM-Link's link first) */
+    else if (i == 1 && d->value_handle == sl[1].fml)
         fml_put(d->blob, d->blob_length);
-    }
 }
 
 /* ---- the main loop's side ---- */
@@ -706,82 +652,11 @@ void ble_start(void)
     task_create(ble_app_core, 0, "app_core");      /* stages 4-5 there: btstack_init in a task */
 }
 
-/* both scans (the device link's, FM-Link's link's): the list made afresh; continuous (30 ms every 30 ms) with no link,
- * beside a link 8 ms every 24 ms (multi_demo/le_multi_client.c 71-72: the links keep their connection events) */
-static void ble_scan_on(void)
+static void ble_tick(void)                         /* the start's deadline */
 {
-    int linked = ble_linked() || lk.st == BL_UP;
-    ble_scan_clear(&scan);
-    lk.tried = 0;
-    ble_op_set_scan_param(BLE_SDK_SCAN_ACTIVE, linked ? 38 : 48, linked ? 13 : 48);
-    ble_op_scan_enable2(1, 0);
-}
-void ble_scan(void)
-{
-    if (st != BLE_IDLE || ble_lnk_busy(&lk))       /* (one scan, one connect at a time: the console's too) */
-        return;
-    ble_scan_on();
-    st = BLE_SCANNING;
-    set_deadline(10000);
-}
-
-void ble_connect(uint32_t sorted_index)
-{
-    static struct create_conn_param_t c;           /* (static, as the SDK's scan_buffer) */
-    uint8_t idx[BLE_SCAN_MAX];
-    uint32_t n = ble_scan_sorted(&scan, idx);
-    if (st != BLE_IDLE || sorted_index >= n || ble_lnk_busy(&lk))
-        return;
-    memcpy(conn_addr, scan.dev[idx[sorted_index]].addr, 6);
-    conn_type = scan.dev[idx[sorted_index]].addr_type;
-    memcpy(conn_name, scan.dev[idx[sorted_index]].name, 24);
-    c.conn_interval = 12;                          /* 15 ms */
-    c.conn_latency = 0;
-    c.supervision_timeout = 400;                   /* 4 s */
-    c.peer_address_type = conn_type;
-    memcpy(c.peer_address, conn_addr, 6);
-    set_err("", 0);
-    ble_op_create_connection(&c);
-    st = BLE_CONNECTING;
-    set_deadline(10000);
-}
-
-void ble_disconnect(void)
-{
-    uint32_t how = ble_disc_how(st, con_handle);
-    if (how == BD_CANCEL) {
-        ble_op_create_connection_cancel();
-        ble_ev(EV_CONN_FAIL);
-    } else if (how == BD_DISC) {
-        ble_op_disconnect(con_handle);
-    }
-}
-
-static void ble_tick(void)                         /* the deadlines of the waiting states */
-{
-    if (st != BLE_STARTING && st != BLE_SCANNING && st != BLE_CONNECTING && st != BLE_DISCOVERING)
-        return;
-    if ((int32_t)(core_ms() - deadline_ms) < 0)
-        return;
-    switch (st) {
-    case BLE_SCANNING:
-        ble_op_scan_enable2(0, 0);
-        ble_ev(EV_SCAN_DONE);
-        break;
-    case BLE_STARTING:
+    if (st == BLE_STARTING && (int32_t)(core_ms() - deadline_ms) >= 0) {
         set_err("BT START TIMEOUT", 0);
         ble_ev(EV_TIMEOUT);
-        break;
-    case BLE_CONNECTING:
-        ble_op_create_connection_cancel();
-        set_err("CONNECT TIMEOUT", 0);
-        ble_ev(EV_TIMEOUT);
-        break;
-    default:                                       /* BLE_DISCOVERING */
-        ble_op_disconnect(con_handle);
-        set_err("DISCOVERY TIMEOUT", 0);
-        ble_ev(EV_TIMEOUT);
-        break;
     }
 }
 
@@ -796,25 +671,23 @@ static int ble_out_tx(const uint8_t *pkt, uint32_t len)   /* ble_out_drain's sen
         return ble_op_multi_att_get_remain(con_handle, &room) || room < len ||
                ble_op_multi_att_send_data(con_handle, BLE_GATT_MIDI, (void *)pkt, len, BLE_SDK_ATT_OP_NOTIFY);
     }
-    return !midi_handle || ble_op_multi_att_get_remain(con_handle, &room) || room < len ||
-           ble_op_multi_att_send_data(con_handle, midi_handle, (void *)pkt, len, BLE_SDK_ATT_OP_WRITE_WITHOUT_RESPOND);
+    return !ctrl_up || ble_op_multi_att_get_remain(sl[0].con, &room) || room < len ||
+           ble_op_multi_att_send_data(sl[0].con, sl[0].midi, (void *)pkt, len, BLE_SDK_ATT_OP_WRITE_WITHOUT_RESPOND);
 }
 static void ble_out_flush(void) { ble_out_drain(core_ms(), ble_out_tx); }   /* ble_service: MIDI out */
-/* one FM-Link message to the other FM-1 (main loop only): on FM-Link's own link when it is up, else on the device's
- * link. The central writes it, the device role notifies it (without the CCCD: the host's writes say it is an FM-1).
- * 1 = sent; 0 = not linked to one, or no room (the engine sends again) */
+/* one FM-Link message to the other FM-1 (main loop only): the host writes it on the FM1 slot's link, the device role
+ * notifies its host (without the CCCD: the host's writes say it is an FM-1). 1 = sent; 0 = no such link, or no room
+ * (the engine sends again) */
 int ble_fml_send(const uint8_t *p, uint32_t len)
 {
     uint32_t room = 0, op = BLE_SDK_ATT_OP_WRITE_WITHOUT_RESPOND;
-    uint16_t con = con_handle, h = fml_handle;
-    if (lk.st == BL_UP) {
-        con = lk_con;
-        h = lk_fml;
-    } else if (!ble_linked()) {
-        return 0;
-    } else if (role_now) {
-        h = fml_heard || multi_att_get_ccc_config(con_handle, BLE_GATT_FML_CCC) ? BLE_GATT_FML : 0u;
+    uint16_t con = sl[1].con, h = sl[1].fml;
+    if (role_now) {
+        con = con_handle;
+        h = ble_linked() && (fml_heard || multi_att_get_ccc_config(con_handle, BLE_GATT_FML_CCC)) ? BLE_GATT_FML : 0u;
         op = BLE_SDK_ATT_OP_NOTIFY;
+    } else if (hs.s[1].st != HS_UP) {
+        return 0;
     }
     if (!h || ble_op_multi_att_get_remain(con, &room) || room < len ||
         ble_op_multi_att_send_data(con, h, (void *)p, len, op))
@@ -822,7 +695,7 @@ int ble_fml_send(const uint8_t *p, uint32_t len)
     fml_out++;
     return 1;
 }
-int ble_fml_ready(void) { return lk.st == BL_UP || ble_linked(); }   /* a link FM-Link may go on */
+int ble_fml_ready(void) { return role_now ? ble_linked() : hs.s[1].st == HS_UP; }   /* a link FM-Link may go on */
 
 /* ---- reconnecting and the Bluetooth page's entry points (ble_core.h ble_ui_*; the core's main loop). None of
  * them starts the stack: the page calls ble_user_start (gate 3). ---- */
@@ -831,59 +704,38 @@ _Static_assert(BLE_ST_OFF == BLE_OFF && BLE_ST_STARTING == BLE_STARTING && BLE_S
                BLE_ST_DISCOVERING == BLE_DISCOVERING && BLE_ST_SUBSCRIBED == BLE_SUBSCRIBED &&
                BLE_ST_RECEIVING == BLE_RECEIVING && BLE_ST_FAILED == BLE_FAILED &&
                BLE_ST_ADVERTISING == BLE_ADVERTISING, "ble_core.h's states");
-static ble_auto_t au;
+static uint8_t link_seen;                           /* the MIDI link as core_ble_link last told the core */
+static void ble_link_note(void)                    /* link up / down to the core, once each */
+{
+    uint8_t up = (uint8_t)ble_linked();
+    if (up != link_seen) {
+        link_seen = up;
+        core_ble_link(up);
+    }
+}
 static uint32_t ble_listed(void)
 {
     uint8_t idx[BLE_SCAN_MAX];
     return ble_scan_sorted(&scan, idx);
 }
-static int ble_target_at(int *named)               /* the target's index in ble_scan_sorted's order; -1 not listed */
+static int ble_host_idle(void)                     /* the host side has nothing going on */
 {
-    uint8_t idx[BLE_SCAN_MAX];
-    uint32_t i, n;
-    *named = 0;
-    if (!au.have)
-        return -1;                                 /* (no sort per pass without a target) */
-    n = ble_scan_sorted(&scan, idx);
-    for (i = 0; i < n; i++)
-        if (scan.dev[idx[i]].addr_type == au.type && !memcmp(scan.dev[idx[i]].addr, au.addr, 6)) {
-            *named = scan.dev[idx[i]].name[0] != 0;
-            return (int)i;
-        }
-    return -1;
+    return hs.s[0].st == HS_IDLE && hs.s[1].st == HS_IDLE && !hs.scan_on;
 }
-static void ble_drop(void)                         /* disconnect the link or cancel the connect, once */
-{
-    if (ble_live(st) && !au.dropping) {
-        au.dropping = 1;
-        ble_disconnect();
-    }
-}
-static void ble_scan_stop(void)
-{
-    if (st == BLE_SCANNING) {
-        ble_op_scan_enable2(0, 0);
-        ble_ev(EV_SCAN_DONE);
-    }
-}
-/* the role switched (ble_ui_role) only with nothing going on: no scan, no connect, no link (FM-Link's either), no
- * advertising; until then those are ended. Both GATT roles are registered from the start (ble_profile_init) */
+/* the role switched (ble_ui_role) only with nothing going on: no scan, no connect, no link, no advertising; until
+ * then those are ended (ble_host / ble_dev: not wanted while switching). Both GATT roles are registered from the start
+ * (ble_profile_init) */
 static void ble_role_apply(void)
 {
-    if (role_want == role_now || st == BLE_OFF || st == BLE_STARTING || st == BLE_FAILED)
+    if (role_want == role_now || st == BLE_OFF || st == BLE_STARTING || st == BLE_FAILED || !ble_host_idle())
         return;
-    if (lk.st != BL_IDLE)
-        return;                                    /* (ble_lnk ends FM-Link's link first: not wanted while switching) */
-    if (st == BLE_SCANNING) {
-        ble_scan_stop();
-        return;
-    }
     if (st == BLE_ADVERTISING) {
         ble_op_adv_enable(0);
         st = BLE_IDLE;
     }
     if (st != BLE_IDLE) {
-        ble_drop();                                /* the link first: its disconnection-complete makes it IDLE */
+        if (con_handle)
+            ble_op_disconnect(con_handle);         /* (its disconnection-complete makes it IDLE) */
         return;
     }
     role_now = role_want;
@@ -898,8 +750,8 @@ static void ble_adv_on(void)                       /* le_trans_data.c 800-865: c
 }
 static void ble_dev(void)                          /* ble_service, the device role: the step applied */
 {
-    ble_watch(&au, core_ms());
-    switch (ble_dev_step(au.want, st)) {
+    static uint8_t dropping;
+    switch (ble_dev_step(want && role_want, st)) {
     case BV_ADV_ON:
         ble_adv_on();
         break;
@@ -908,116 +760,108 @@ static void ble_dev(void)                          /* ble_service, the device ro
         st = BLE_IDLE;
         break;
     case BV_DROP:
-        ble_drop();
+        if (!dropping && con_handle)
+            ble_op_disconnect(con_handle);
+        dropping = 1;
         break;
     default:
         break;
     }
+    if (!ble_linked())
+        dropping = 0;
 }
-
-/* an FM-1 listed by name, neither the device's link nor the remembered device: its scan.dev index, -1 none */
-static int ble_lnk_fm1(void)
+static int ble_slot_listed(uint32_t i, uint32_t now, uint32_t *seen)   /* the target, seen in the last 20 s */
 {
-    static const char N[] = "Felucca FM-1";
-    uint32_t i;
-    for (i = 0; i < BLE_SCAN_MAX; i++) {
-        const ble_dev_t *d = &scan.dev[i];
-        if (d->used && !memcmp(d->name, N, sizeof N) && !(ble_live(st) && !memcmp(d->addr, conn_addr, 6)) &&
-            !(au.have && !memcmp(d->addr, au.addr, 6)))
-            return (int)i;
-    }
-    return -1;
+    uint32_t k;
+    for (k = 0; k < BLE_SCAN_MAX; k++)
+        if (scan.dev[k].used && scan.dev[k].addr_type == sl[i].tgt_type && !memcmp(scan.dev[k].addr, sl[i].tgt, 6)) {
+            *seen = scan.dev[k].seen_ms;
+            return now - scan.dev[k].seen_ms <= 20000u;
+        }
+    return 0;
 }
-static void ble_lnk(void)                          /* ble_service: FM-Link's link, its step applied */
+static void ble_host(void)                         /* ble_service, the host role: the step applied */
 {
     static struct create_conn_param_t c;           /* (static, as the SDK's scan_buffer) */
-    int at = ble_lnk_fm1();
-    lk.want = lk_ui && au.want && !role_now && !role_want && st != BLE_OFF && st != BLE_STARTING && st != BLE_FAILED;
-    switch (ble_lnk_step(&lk, st, au.want && au.have && !au.paused, au.paused || au.scan_req || au.manual, at >= 0,
-                         core_ms())) {
-    case BLA_SCAN:
-        ble_scan_on();
-        lk.st = BL_SCANNING;
-        lk.deadline_ms = core_ms() + 10000u;
+    uint32_t i, k, now = core_ms(), seen = 0, act;
+    static const uint8_t Z[6];
+    hs.want = want && !role_now && !role_want && st == BLE_IDLE;
+    hs.scan_want = hs.scan_want || (int32_t)(console_scan_until - now) > 0;
+    ble_scan_expire(&scan, now, 30000u);
+    for (i = 0; i < 2u; i++) {
+        ble_hslot_t *s = &hs.s[i];
+        s->target = memcmp(sl[i].tgt, Z, 6) != 0;
+        s->listed = s->target && ble_slot_listed(i, now, &seen);
+        if (sl[i].fail && s->listed && seen != sl[i].fail_seen)
+            sl[i].fail = 0;                        /* seen again since it failed */
+        s->tried = sl[i].fail;
+        s->mismatch = s->st != HS_IDLE && (!s->target || memcmp(sl[i].addr, sl[i].tgt, 6));
+    }
+    act = ble_host_step(&hs, now, &i);
+    switch (act) {
+    case BH_SCAN_ON:                               /* continuous with no link, 8 ms in 24 beside one (multi_demo) */
+        k = hs.s[0].st == HS_UP || hs.s[1].st == HS_UP;
+        ble_op_set_scan_param(BLE_SDK_SCAN_ACTIVE, k ? 38 : 48, k ? 13 : 48);
+        ble_op_scan_enable2(1, 0);
+        hs.scan_on = 1;
+        hs.scan_until = now + 10000u;
         break;
-    case BLA_STOP_SCAN:
+    case BH_SCAN_OFF:
         ble_op_scan_enable2(0, 0);
-        lk.found = at >= 0;
-        lk.st = BL_IDLE;
-        lk.rest_ms = core_ms();
+        hs.scan_on = 0;
+        hs.scan_rest = now + 2000u;
         break;
-    case BLA_CONNECT:                              /* (only when listed: at >= 0) */
-        lk.tried = 1;
-        lk.found = 0;
-        memcpy(lk_addr, scan.dev[at].addr, 6);
+    case BH_CONNECT:
+        memcpy(sl[i].addr, sl[i].tgt, 6);
+        sl[i].type = sl[i].tgt_type;
+        sl[i].name[0] = 0;
+        for (k = 0; k < BLE_SCAN_MAX; k++)
+            if (scan.dev[k].used && !memcmp(scan.dev[k].addr, sl[i].addr, 6))
+                memcpy(sl[i].name, scan.dev[k].name, 24);
         c.conn_interval = 12;                      /* 15 ms */
         c.conn_latency = 0;
         c.supervision_timeout = 400;               /* 4 s */
-        c.peer_address_type = scan.dev[at].addr_type;
-        memcpy(c.peer_address, lk_addr, 6);
-        lk.st = BL_CONNECTING;
-        lk.deadline_ms = core_ms() + 5000u;
+        c.peer_address_type = sl[i].type;
+        memcpy(c.peer_address, sl[i].addr, 6);
+        set_err("", 0);
+        hs.s[i].st = HS_CONNECTING;
+        hs.s[i].deadline_ms = now + 5000u;
+        sl[i].tries++;
         ble_op_create_connection(&c);
         break;
-    case BLA_CANCEL:
+    case BH_CANCEL:
         ble_op_create_connection_cancel();
-        lk.st = BL_IDLE;
-        lk.rest_ms = core_ms();
+        hs.s[i].st = HS_IDLE;
+        hs.s[i].rest_ms = now + 2000u;
+        ble_slot_failed(i);
         break;
-    case BLA_DROP:                                 /* its disconnection-complete makes it BL_IDLE */
-        lk.dropping = 1;
-        ble_op_disconnect(lk_con);
+    case BH_DROP:                                  /* its disconnection-complete makes it HS_IDLE */
+        if (hs.s[i].st == HS_DISCOVERING && hs.want && !hs.s[i].mismatch)
+            ble_slot_failed(i);                    /* (a discovery given up) */
+        hs.s[i].dropping = 1;
+        ble_op_disconnect(sl[i].con);
         break;
     default:
         break;
     }
 }
-
-static void ble_auto(void)                         /* ble_service: the step applied */
+static void ble_auto(void)                         /* ble_service: the role, the host's slots or the device role */
 {
-    int named, at;
-    uint32_t step;
     ble_role_apply();
-    ble_lnk();
-    if (role_now != role_want)
-        return;                                    /* (switching: until the scan or the link has ended) */
-    if (role_now) {
+    if (role_now)
         ble_dev();
-        return;
-    }
-    at = ble_target_at(&named);
-    ble_watch(&au, core_ms());
-    if (st == BLE_SCANNING)
-        ble_sight(&au, at >= 0, core_ms());
-    step = ble_auto_step(&au, st, at < 0 ? 0 : named ? 2 : 1, core_ms());
-    if (ble_lnk_busy(&lk) && (step == BA_SCAN || step == BA_CONNECT))
-        step = BA_NONE;                            /* (FM-Link's link is scanning, connecting or discovering: after it) */
-    switch (step) {
-    case BA_SCAN:
-        au.manual = au.scan_req;
-        au.scan_req = 0;
-        ble_scan();
-        break;
-    case BA_CONNECT:                               /* (BA_CONNECT only when listed: at >= 0) */
-        au.tried = 1;
-        ble_connect((uint32_t)at);
-        break;
-    case BA_STOP_SCAN:                             /* IDLE now: the next pass connects */
-        ble_scan_stop();
-        break;
-    case BA_DISCONNECT:
-        ble_drop();
-        break;
-    default:
-        break;
-    }
+    else
+        ble_host();
+    ble_link_note();
 }
+_Static_assert(BLE_LS_IDLE == HS_IDLE && BLE_LS_CONNECTING == HS_CONNECTING && BLE_LS_DISCOVERING == HS_DISCOVERING &&
+               BLE_LS_UP == HS_UP, "ble_core.h's link states");
 uint32_t ble_ui_state(void) { return st; }
 const char *ble_ui_err(uint32_t *code) { return ble_err(code); }
-uint32_t ble_ui_scan_left(void)                    /* whole seconds, rounded up */
+uint32_t ble_ui_scan_left(void)                    /* a scan running: whole seconds of its window left */
 {
-    int32_t left = (int32_t)(deadline_ms - core_ms());
-    return st == BLE_SCANNING && left > 0 ? ((uint32_t)left + 999u) / 1000u : 0;
+    int32_t left = (int32_t)(hs.scan_until - core_ms());
+    return hs.scan_on && !hs.scan_want && left > 0 ? ((uint32_t)left + 999u) / 1000u : 0;
 }
 uint32_t ble_ui_devs(void) { return ble_listed(); }
 int ble_ui_dev(uint32_t i, ble_ui_dev_t *out)
@@ -1032,41 +876,30 @@ int ble_ui_dev(uint32_t i, ble_ui_dev_t *out)
     out->midi = d->midi;
     out->rssi = d->rssi;
     memcpy(out->name, d->name, sizeof out->name);
+    out->seen_ms = d->seen_ms;
     return 1;
 }
-void ble_ui_scan(void)                             /* a manual scan once IDLE; pauses reconnecting */
+void ble_ui_slot_target(uint32_t slot, const uint8_t addr[6], uint32_t type)
 {
-    au.paused = au.scan_req = 1;
-    ble_scan_stop();                               /* (a running scan restarts: the full 10 s, a fresh list) */
-    ble_drop();
-}
-void ble_ui_target(const uint8_t addr[6], uint32_t type)
-{
-    uint32_t i, any = 0;
-    for (i = 0; i < 6u; i++)
-        any |= addr[i];
-    au.have = any != 0;
-    memcpy(au.addr, addr, 6);
-    au.type = (uint8_t)type;
-    au.paused = au.manual = au.tried = 0;          /* a pick ends the pause; a running scan stops once it is seen */
-    if (!role_now && ble_live(st) && (!au.have || conn_type != au.type || memcmp(conn_addr, au.addr, 6)))
-        ble_drop();                                /* another device than the one connected (the central's role) */
-}
-void ble_ui_want(int on)
-{
-    au.want = on != 0;
-    if (!on) {
-        au.scan_req = 0;
-        ble_scan_stop();
-        ble_drop();
+    if (slot < 2u) {
+        memcpy(sl[slot].tgt, addr, 6);
+        sl[slot].tgt_type = (uint8_t)type;
     }
 }
-void ble_ui_pause(int on)
+int ble_ui_slot(uint32_t slot, ble_ui_slot_t *out)
 {
-    au.paused = on != 0;
-    if (!on)
-        au.manual = 0;                             /* the page closed: the list need not stay */
+    if (slot >= 2u)
+        return 0;
+    out->st = hs.s[slot].st;
+    memcpy(out->addr, hs.s[slot].st == HS_IDLE ? sl[slot].tgt : sl[slot].addr, 6);
+    out->type = hs.s[slot].st == HS_IDLE ? sl[slot].tgt_type : sl[slot].type;
+    out->last_reason = sl[slot].last_reason;
+    out->drops = sl[slot].drops;
+    memcpy(out->name, sl[slot].name, 24);
+    return 1;
 }
+void ble_ui_scan_want(int on) { hs.scan_want = on != 0; }
+void ble_ui_want(int on) { want = on != 0; }
 int ble_ui_conn_name(char out[24])
 {
     static const char H[] = "0123456789ABCDEF";
@@ -1082,12 +915,10 @@ int ble_ui_conn_name(char out[24])
         memset(out + 18, 0, 6);
         return 1;
     }
-    memcpy(out, conn_name, 24);
+    memcpy(out, sl[0].name, 24);
     return 1;
 }
 void ble_ui_role(int device) { role_want = device != 0; }   /* (applied by ble_service once nothing is going on) */
-void ble_ui_link(int on) { lk_ui = on != 0; }      /* ROLE HOST + LINK (ble_lnk: once the role is HOST) */
-uint32_t ble_ui_link_state(void) { return lk.st == BL_UP ? 2u : lk.want ? 1u : 0u; }
 uint32_t ble_ui_role_now(void) { return role_now; }
 
 /* ---- the console's `ble` (moved here from fm1-lsdj's ble_ui.c: Hortator has no BLE screen) ---- */
@@ -1124,6 +955,7 @@ BLE_CON void ble_status(void)                      /* console `ble` */
     uint32_t code, i;
     const char *err = ble_err(&code);
     o = put_s(put_s(b, "ble: state "), STATE_NAME[st]);
+    o = put_u(put_s(o, " want "), want);
     o = put_u(put_s(o, " reports "), scan.reports);
     o = put_u(put_s(o, " msgs "), bm.msgs);
     o = put_u(put_s(o, " pkts "), bm.packets);
@@ -1136,10 +968,26 @@ BLE_CON void ble_status(void)                      /* console `ble` */
     o = put_s(o, "\r\n");
     *o = 0;
     core_con_puts(b);
-    o = put_s(b, "  fm-link ");                   /* another FM-1: its characteristic found (the central) / written */
-    o = put_s(o, lk.st == BL_UP ? "own link" : (role_now ? fml_heard : fml_handle != 0) ? "peer" : "none");
-    o = put_u(put_s(o, " link_state "), lk.st);    /* FM-Link's own link: 0 idle 1 scanning 2 connecting 3 discovering 4 up */
-    o = put_u(put_s(o, " link_want "), lk.want);
+    for (i = 0; i < 2u; i++) {                     /* the host's slots: state (0 idle 1 connecting 2 discovering 3 up),
+                                                     * target, the last disconnect's reason, drops, connects tried */
+        o = put_s(b, i ? "  fm1 " : "  ctrl ");
+        o = put_u(put_s(o, "state "), hs.s[i].st);
+        o = put_s(o, " target ");
+        for (code = 6; code--;)
+            o = put_x(o, sl[i].tgt[code]);
+        o = put_s(o, sl[i].fail ? " failed" : "");
+        o = put_x(put_s(o, " reason 0x"), sl[i].last_reason);
+        o = put_u(put_s(o, " drops "), sl[i].drops);
+        o = put_u(put_s(o, " tries "), sl[i].tries);
+        o = put_s(put_s(o, " "), sl[i].name);
+        o = put_s(o, "\r\n");
+        *o = 0;
+        core_con_puts(b);
+    }
+    o = put_u(put_s(b, "  scan "), hs.scan_on);
+    o = put_u(put_s(o, " want "), hs.scan_want);
+    o = put_s(o, "  fm-link ");                   /* another FM-1: the FM1 slot up, or the device role's host wrote */
+    o = put_s(o, hs.s[1].st == HS_UP || (role_now && fml_heard) ? "peer" : "none");
     o = put_u(put_s(o, " in "), fml_in);
     o = put_u(put_s(o, " out "), fml_out);
     o = put_u(put_s(o, " lost "), fq_lost);
@@ -1232,7 +1080,9 @@ BLE_CON static void say_state(void)
 BLE_CON void ble_console(const char *args)
 {
     uint32_t n = 0, cmd = ble_cmd_parse(args, &n);
-    const char *no = ble_cmd_refuse(cmd, st, ble_listed(), n);
+    const char *no = ble_cmd_refuse(cmd, ctrl_up || hs.s[1].st == HS_UP ? BLE_SUBSCRIBED : st, ble_listed(), n);
+    uint8_t idx[BLE_SCAN_MAX];
+    const ble_dev_t *d;
     if (no) {
         core_con_puts(no);
         core_con_puts("\r\n");
@@ -1242,12 +1092,14 @@ BLE_CON void ble_console(const char *args)
     case BLE_CMD_STATUS: ble_status(); return;
     case BLE_CMD_LIST: ble_list(); return;
     case BLE_CMD_START: ble_user_start(); break;
-    case BLE_CMD_SCAN: au.manual = 1; ble_scan(); break;          /* (the console's scan runs its 10 s) */
-    case BLE_CMD_CONNECT:                          /* want leaves it; a drop reconnects after a scan (tried) */
-        au.console = au.tried = 1;
-        ble_connect(n - 1u);
+    case BLE_CMD_SCAN: console_scan_until = core_ms() + 10000u; break;   /* (a 10 s scan beside the links) */
+    case BLE_CMD_CONNECT:                          /* the device as its kind's slot's target (until the core's next) */
+        ble_scan_sorted(&scan, idx);
+        d = &scan.dev[idx[n - 1u]];
+        ble_ui_slot_target(!memcmp(d->name, "Felucca FM-1", 12) ? 1u : 0u, d->addr, d->addr_type);
+        want = 1;
         break;
-    case BLE_CMD_STOP: ble_disconnect(); break;
+    case BLE_CMD_STOP: want = 0; break;            /* (BLUETOOTH ON on the page wants them again) */
     default:
         core_con_puts("ble [start | scan | list | connect N | stop]\r\n");
         return;

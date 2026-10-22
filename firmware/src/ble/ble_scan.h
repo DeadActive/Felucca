@@ -3,7 +3,7 @@
 #ifndef BLE_SCAN_H
 #define BLE_SCAN_H
 #include <stdint.h>
-#define BLE_SCAN_MAX 16
+#define BLE_SCAN_MAX 12                            /* (16 until the saved devices: the page lists 8; RAM) */
 typedef struct {
     uint8_t addr[6], addr_type, midi, used;
     int8_t rssi;

@@ -41,22 +41,32 @@ int ble_ui_dev(uint32_t i, ble_ui_dev_t *out)
     *out = bs.dev[i];
     return 1;
 }
-void ble_ui_scan(void) { bs.scans++; }
-void ble_ui_target(const uint8_t addr[6], uint32_t type)
+static struct {                                     /* the host's slots as the test sets them; the targets as set */
+    ble_ui_slot_t slot[2];
+    uint8_t tgt[2][6], tgt_type[2];
+    uint32_t targets[2];                             /* ble_ui_slot_target calls per slot */
+    int scan_want;
+} bh;
+void ble_ui_slot_target(uint32_t slot, const uint8_t addr[6], uint32_t type)
 {
-    bs.targets++;
-    memcpy(bs.taddr, addr, 6);
-    bs.ttype = type;
+    if (slot < 2u) {
+        bh.targets[slot]++;
+        memcpy(bh.tgt[slot], addr, 6);
+        bh.tgt_type[slot] = (uint8_t)type;
+    }
 }
+int ble_ui_slot(uint32_t slot, ble_ui_slot_t *out)
+{
+    if (slot >= 2u)
+        return 0;
+    *out = bh.slot[slot];
+    return 1;
+}
+void ble_ui_scan_want(int on) { bs.scans += on && !bh.scan_want; bh.scan_want = on; }
 void ble_ui_want(int on) { bs.wants++; bs.want = on; }
-void ble_ui_pause(int on) { bs.pauses++; bs.pause = on; }
 static int bs_role = -1;                             /* the last ble_ui_role (-1 none) */
 void ble_ui_role(int device) { bs_role = device; }
 uint32_t ble_ui_role_now(void) { return bs_role > 0; }
-static int bs_link = -1;                             /* the last ble_ui_link (-1 none) */
-static uint32_t bs_link_state;                       /* ble_ui_link_state, as the test sets it */
-void ble_ui_link(int on) { bs_link = on; }
-uint32_t ble_ui_link_state(void) { return bs_link_state; }
 int ble_fml_ready(void) { return conn_up; }          /* (a link up: the test's) */
 void ble_user_start(void)
 {

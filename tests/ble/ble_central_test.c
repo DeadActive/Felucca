@@ -215,172 +215,97 @@ int main(void)
         CHECK(ble_midi_send(on, 3) && mo.h - mo.t == 1u, "flush: the queue works after the next connect");
         ble_ev(EV_DISCONNECTED);
     }
-    {   /* how a disconnect is asked: CONNECTING cancels (a stale handle from a failed link is not used) */
-        CHECK(ble_disc_how(BLE_CONNECTING, 0) == BD_CANCEL && ble_disc_how(BLE_CONNECTING, 0x41) == BD_CANCEL,
-              "disconnect: connecting -> cancel, even with a stale handle");
-        CHECK(ble_disc_how(BLE_DISCOVERING, 0x41) == BD_DISC && ble_disc_how(BLE_SUBSCRIBED, 0x41) == BD_DISC &&
-              ble_disc_how(BLE_RECEIVING, 0x41) == BD_DISC, "disconnect: a live link with a handle -> disconnect");
-        CHECK(ble_disc_how(BLE_RECEIVING, 0) == BD_NONE && ble_disc_how(BLE_IDLE, 0x41) == BD_NONE &&
-              ble_disc_how(BLE_SCANNING, 0x41) == BD_NONE, "disconnect: no link or no handle -> nothing");
-    }
-    {   /* the auto-connect step (spec 3) */
-        ble_auto_t a;
-        memset(&a, 0, sizeof a);
-        a.want = 1;
-        a.have = 1;
-        a.rest_ms = 1000;
-        CHECK(ble_auto_step(&a, BLE_IDLE, 1, 1000) == BA_CONNECT, "auto: IDLE, target listed -> connect");
-        CHECK(ble_auto_step(&a, BLE_IDLE, 0, 2900) == BA_NONE, "auto: not listed, 1.9 s after the rest -> nothing");
-        CHECK(ble_auto_step(&a, BLE_IDLE, 0, 3000) == BA_SCAN, "auto: not listed, 2.0 s after the rest -> scan");
-        CHECK(ble_auto_step(&a, BLE_SCANNING, 2, 3000) == BA_STOP_SCAN, "auto: auto scan, target seen with its name -> stop the scan");
-        CHECK(ble_auto_step(&a, BLE_SCANNING, 0, 9000) == BA_NONE, "auto: auto scan, not seen -> keep scanning");
-        CHECK(ble_auto_step(&a, BLE_SCANNING, 1, 3000) == BA_NONE, "auto: auto scan, target listed without a name, not sighted -> keep scanning");
-        a.sighted = 1;
-        a.sighted_ms = 3000;
-        CHECK(ble_auto_step(&a, BLE_SCANNING, 1, 3000) == BA_NONE && ble_auto_step(&a, BLE_SCANNING, 1, 3499) == BA_NONE,
-              "auto: listed without a name at t0, t0 + 499 ms -> keep scanning (the scan response may follow)");
-        CHECK(ble_auto_step(&a, BLE_SCANNING, 2, 3001) == BA_STOP_SCAN, "auto: .. its name arrives -> stop the scan");
-        CHECK(ble_auto_step(&a, BLE_SCANNING, 1, 3500) == BA_STOP_SCAN, "auto: still no name at t0 + 500 ms -> stop the scan");
-        a.sighted = 0;
-        a.manual = 1;
-        CHECK(ble_auto_step(&a, BLE_SCANNING, 2, 3000) == BA_NONE, "auto: a manual scan is never stopped early");
-        a.manual = 0;
-        a.tried = 1;
-        CHECK(ble_auto_step(&a, BLE_IDLE, 1, 2900) == BA_NONE && ble_auto_step(&a, BLE_IDLE, 1, 3000) == BA_SCAN,
-              "auto: one connect per sighting: after a failed try, a scan after the rest");
-        a.tried = 0;
-        CHECK(ble_auto_step(&a, BLE_RECEIVING, 1, 3000) == BA_NONE && ble_auto_step(&a, BLE_CONNECTING, 1, 3000) ==
-              BA_NONE, "auto: connected / connecting -> nothing");
-        a.paused = 1;
-        CHECK(ble_auto_step(&a, BLE_IDLE, 1, 9000) == BA_NONE && ble_auto_step(&a, BLE_IDLE, 0, 9000) == BA_NONE,
-              "auto: paused -> no auto connect, no auto scan");
-        a.scan_req = 1;
-        CHECK(ble_auto_step(&a, BLE_IDLE, 0, 1000) == BA_SCAN, "auto: a requested scan starts on IDLE (no rest)");
-        CHECK(ble_auto_step(&a, BLE_RECEIVING, 0, 1000) == BA_NONE, "auto: a requested scan waits for IDLE");
-        a.scan_req = 0;
-        a.paused = 0;
-        a.have = 0;
-        CHECK(ble_auto_step(&a, BLE_IDLE, 0, 9000) == BA_NONE && ble_auto_step(&a, BLE_RECEIVING, 0, 9000) == BA_NONE,
-              "auto: no target -> nothing");
-        a.have = 1;
-        for (i = 0; i < 3; i++) {
-            static const uint32_t S[3] = {BLE_OFF, BLE_STARTING, BLE_FAILED};
-            CHECK(ble_auto_step(&a, S[i], 1, 9000) == BA_NONE && ble_auto_step(&a, S[i], 0, 9000) == BA_NONE,
-                  "auto: OFF / STARTING / FAILED -> nothing");
+    {   /* the host's two link slots (CTRL, FM1) and its scanner: one decision per pass (ble_host_step) */
+        ble_host_t h;
+        uint32_t sl, k, on, off, now;
+        const uint32_t T = 100000u;
+        #define HCLR() (memset(&h, 0, sizeof h), h.want = 1)
+        HCLR();
+        h.s[0].target = h.s[0].listed = 1;
+        CHECK(ble_host_step(&h, T, &sl) == BH_CONNECT && sl == 0u, "connect_listed: IDLE, its target listed, rested -> connect it");
+        HCLR();
+        h.s[1].target = 1;
+        CHECK(ble_host_step(&h, T, &sl) == BH_SCAN_ON, "scan_for_unlisted: a target not listed -> scan");
+        HCLR();
+        h.s[1].target = 1;
+        h.scan_on = 1;
+        h.scan_until = T;
+        CHECK(ble_host_step(&h, T - 1u, &sl) == BH_NONE && ble_host_step(&h, T, &sl) == BH_SCAN_OFF,
+              "scan_window: a background scan ends after its window");
+        h.scan_on = 0;
+        h.scan_rest = T + 2000u;
+        CHECK(ble_host_step(&h, T + 1999u, &sl) == BH_NONE && ble_host_step(&h, T + 2000u, &sl) == BH_SCAN_ON,
+              "scan_window: then 2 s of rest, then the next window");
+        HCLR();
+        h.s[0].st = h.s[1].st = HS_UP;
+        h.s[0].target = h.s[1].target = h.s[0].listed = h.s[1].listed = 1;
+        h.scan_want = 1;
+        h.scan_rest = T + 5000u;                    /* (the page's scan: no rest) */
+        CHECK(ble_host_step(&h, T, &sl) == BH_SCAN_ON, "scan_beside_links: both links up, the page wants a scan -> scan");
+        h.scan_on = 1;
+        h.scan_until = T;
+        CHECK(ble_host_step(&h, T + 60000u, &sl) == BH_NONE, "scan_beside_links: the page's scan runs on, no link dropped");
+        HCLR();
+        h.s[0].target = h.s[1].target = 1;          /* nothing listed: windows of 10 s with 2 s rests */
+        for (on = off = 0, now = T; now < T + 12000u; now += 10u) {
+            k = ble_host_step(&h, now, &sl);
+            if (k == BH_SCAN_ON) {
+                on++;
+                h.scan_on = 1;
+                h.scan_until = now + 10000u;
+            } else if (k == BH_SCAN_OFF) {
+                off++;
+                h.scan_on = 0;
+                h.scan_rest = now + 2000u;
+            }
         }
-        a.want = 0;
-        CHECK(ble_auto_step(&a, BLE_RECEIVING, 1, 9000) == BA_DISCONNECT, "auto: want off while receiving -> disconnect");
-        CHECK(ble_auto_step(&a, BLE_DISCOVERING, 1, 9000) == BA_DISCONNECT, "auto: want off while discovering -> disconnect");
-        CHECK(ble_auto_step(&a, BLE_IDLE, 1, 9000) == BA_NONE && ble_auto_step(&a, BLE_IDLE, 0, 9000) == BA_NONE,
-              "auto: want off, IDLE -> nothing");
-        a.dropping = 1;
-        CHECK(ble_auto_step(&a, BLE_RECEIVING, 1, 9000) == BA_NONE, "auto: want off: the disconnect asked once");
-        a.dropping = 0;
-        a.console = 1;
-        CHECK(ble_auto_step(&a, BLE_RECEIVING, 1, 9000) == BA_NONE, "auto: want off: the console's link is left alone");
-        a.console = 0;
-        a.scan_req = 1;
-        CHECK(ble_auto_step(&a, BLE_IDLE, 0, 1000) == BA_SCAN, "auto: a requested scan runs without want");
-    }
-    {   /* the service's watch: link up / down to the core once each, the rest times, the scan flags */
-        ble_auto_t a;
-        memset(&a, 0, sizeof a);
-        st = BLE_IDLE;
-        ble_watch(&a, 100);
-        a.tried = 1;
-        st = BLE_SCANNING;
-        ble_watch(&a, 200);
-        CHECK(!a.tried, "watch: a scan start is a new sighting");
-        a.sighted = 1;
-        ble_sight(&a, 1, 250);
-        CHECK(a.sighted_ms == 0u, "sight: an old sighting is kept");
-        a.sighted = 0;
-        ble_sight(&a, 0, 250);
-        CHECK(!a.sighted, "sight: not listed -> not sighted");
-        ble_sight(&a, 1, 260);
-        ble_sight(&a, 1, 270);
-        CHECK(a.sighted && a.sighted_ms == 260u, "sight: the first listing in the scan sets the time");
-        st = BLE_IDLE;
-        ble_watch(&a, 280);
-        st = BLE_SCANNING;
-        ble_watch(&a, 290);
-        CHECK(!a.sighted, "watch: a scan start clears the sighting");
-        a.manual = 1;
-        ble_ev(EV_SCAN_DONE);
-        ble_watch(&a, 300);
-        CHECK(a.rest_ms == 300u && !a.manual, "watch: a scan end: the rest starts, the scan is no longer manual");
-        st = BLE_CONNECTING;
-        a.console = 1;
-        ble_watch(&a, 400);
-        ble_ev(EV_CONNECTED);
-        ble_watch(&a, 500);
-        CHECK(!link_up && !link_down, "watch: connecting / discovering: no link yet");
-        ble_ev(EV_FOUND_MIDI);
-        ble_watch(&a, 600);
-        CHECK(link_up == 1 && !link_down, "watch: SUBSCRIBED -> core_ble_link(1)");
-        ble_ev(EV_NOTIFY);
-        ble_watch(&a, 700);
-        ble_watch(&a, 800);
-        CHECK(link_up == 1 && !link_down, "watch: RECEIVING after it: no second call");
-        a.dropping = 1;
-        ble_ev(EV_DISCONNECTED);
-        ble_watch(&a, 900);
-        ble_watch(&a, 1000);
-        CHECK(link_up == 1 && link_down == 1, "watch: the disconnect -> core_ble_link(0) once");
-        CHECK(a.rest_ms == 900u && !a.dropping && !a.console, "watch: a drop: the rest starts, the link's flags clear");
-        st = BLE_CONNECTING;
-        ble_watch(&a, 1100);
-        ble_ev(EV_CONN_FAIL);
-        ble_watch(&a, 1200);
-        CHECK(link_up == 1 && link_down == 1 && a.rest_ms == 1200u, "watch: a failed connect: rest, no link calls");
-    }
-    {   /* FM-Link's own link (ROLE HOST + LINK): one scan, connect, discovery at a time beside the device's link */
-        ble_lnk_t l;
-        const uint32_t T = 100000u;                  /* now; rest_ms 0: rested */
-        memset(&l, 0, sizeof l);
-        l.want = 1;
-        CHECK(ble_lnk_step(&l, BLE_IDLE, 0, 0, 0, T) == BLA_SCAN, "link: wanted, nothing listed, the device idle -> its own scan");
-        CHECK(ble_lnk_step(&l, BLE_RECEIVING, 0, 0, 0, T) == BLA_SCAN, "link: beside a linked device too");
-        CHECK(ble_lnk_step(&l, BLE_IDLE, 1, 0, 0, T) == BLA_NONE, "link: the device scans by itself -> its lists serve");
-        CHECK(ble_lnk_step(&l, BLE_SCANNING, 0, 0, 0, T) == BLA_NONE && ble_lnk_step(&l, BLE_CONNECTING, 0, 0, 0, T) == BLA_NONE &&
-              ble_lnk_step(&l, BLE_DISCOVERING, 0, 0, 0, T) == BLA_NONE, "link: never while the device scans, connects, discovers");
-        CHECK(ble_lnk_step(&l, BLE_IDLE, 0, 1, 1, T) == BLA_NONE, "link: never while the page's list is in use");
-        CHECK(ble_lnk_step(&l, BLE_IDLE, 1, 0, 1, T) == BLA_CONNECT, "link: an FM-1 listed -> connect (from the device's list too)");
-        l.tried = 1;
-        CHECK(ble_lnk_step(&l, BLE_IDLE, 0, 0, 1, T) == BLA_SCAN, "link: tried on this list -> a new list first");
-        CHECK(ble_lnk_step(&l, BLE_IDLE, 1, 0, 1, T) == BLA_NONE, "link: tried, the device scanning by itself -> its next list");
-        l.tried = 0;
-        l.rest_ms = T - 500u;
-        CHECK(ble_lnk_step(&l, BLE_IDLE, 0, 0, 0, T) == BLA_NONE && ble_lnk_step(&l, BLE_IDLE, 0, 0, 1, T) == BLA_NONE,
-              "link: 2 s of rest after a scan, a failed connect or a drop");
-        l.found = 1;
-        CHECK(ble_lnk_step(&l, BLE_IDLE, 0, 0, 1, T) == BLA_CONNECT, "link: its scan ended on an FM-1 -> connect without the rest");
-        l.want = 0;
-        CHECK(ble_lnk_step(&l, BLE_IDLE, 0, 0, 1, T) == BLA_NONE, "link: not wanted -> nothing");
-        memset(&l, 0, sizeof l);
-        l.want = 1;
-        l.st = BL_SCANNING;
-        l.deadline_ms = T + 5000u;
-        CHECK(ble_lnk_step(&l, BLE_RECEIVING, 0, 0, 0, T) == BLA_NONE, "link scanning: nothing yet -> on");
-        CHECK(ble_lnk_step(&l, BLE_RECEIVING, 0, 0, 1, T) == BLA_STOP_SCAN, "link scanning: an FM-1 listed -> stop (then connect)");
-        CHECK(ble_lnk_step(&l, BLE_RECEIVING, 0, 1, 0, T) == BLA_STOP_SCAN, "link scanning: the page's scan -> stop");
-        CHECK(ble_lnk_step(&l, BLE_RECEIVING, 0, 0, 0, T + 5000u) == BLA_STOP_SCAN, "link scanning: 10 s -> stop");
-        l.st = BL_CONNECTING;
-        CHECK(ble_lnk_step(&l, BLE_IDLE, 0, 0, 0, T) == BLA_NONE && ble_lnk_step(&l, BLE_IDLE, 0, 0, 0, T + 5000u) == BLA_CANCEL,
-              "link connecting: given up at its deadline");
-        l.st = BL_DISCOVERING;
-        CHECK(ble_lnk_step(&l, BLE_IDLE, 0, 0, 0, T + 5000u) == BLA_DROP, "link discovering: given up at its deadline");
-        l.dropping = 1;
-        CHECK(ble_lnk_step(&l, BLE_IDLE, 0, 0, 0, T + 5000u) == BLA_NONE, "link: a disconnect asked once only");
-        l.dropping = 0;
-        l.st = BL_UP;
-        CHECK(ble_lnk_step(&l, BLE_SCANNING, 0, 1, 0, T) == BLA_NONE, "link up: stays up whatever the device's link does");
-        l.want = 0;
-        CHECK(ble_lnk_step(&l, BLE_IDLE, 0, 0, 0, T) == BLA_DROP, "link up, not wanted (OFF, ROLE) -> dropped");
-        l.st = BL_CONNECTING;
-        CHECK(ble_lnk_step(&l, BLE_IDLE, 0, 0, 0, T) == BLA_CANCEL, "link connecting, not wanted -> cancelled");
-        CHECK(ble_lnk_busy(&l) && (l.st = BL_UP, !ble_lnk_busy(&l)) && (l.st = BL_IDLE, !ble_lnk_busy(&l)),
-              "link busy (the device's scans and connects wait): scanning, connecting, discovering only");
+        CHECK(on == 1u && off == 1u, "scan_rest: nothing around -> one 10 s window and one rest in 12 s");
+        HCLR();
+        h.s[0].st = HS_CONNECTING;
+        h.s[0].deadline_ms = T + 5000u;
+        h.s[1].target = h.s[1].listed = 1;
+        CHECK(ble_host_step(&h, T, &sl) == BH_NONE, "one_at_a_time: a connect running -> the other slot waits");
+        h.scan_on = 1;
+        CHECK(ble_host_step(&h, T, &sl) == BH_SCAN_OFF, "one_at_a_time: .. and a scan stops");
+        h.scan_on = 0;
+        CHECK(ble_host_step(&h, T + 5000u, &sl) == BH_CANCEL && sl == 0u, "connect_deadline: 5 s -> cancel");
+        HCLR();
+        h.s[1].st = HS_DISCOVERING;
+        h.s[1].target = 1;
+        h.s[1].deadline_ms = T;
+        CHECK(ble_host_step(&h, T, &sl) == BH_DROP && sl == 1u, "discovery_deadline: -> drop");
+        HCLR();
+        h.s[0].st = HS_UP;
+        h.s[0].target = h.s[0].mismatch = 1;
+        CHECK(ble_host_step(&h, T, &sl) == BH_DROP && sl == 0u, "mismatch_drops: linked to another than its target -> drop");
+        h.s[0].dropping = 1;
+        CHECK(ble_host_step(&h, T, &sl) != BH_DROP, "mismatch_drops: asked once");
+        HCLR();
+        h.want = 0;
+        h.s[0].st = HS_UP;
+        h.s[0].target = 1;
+        CHECK(ble_host_step(&h, T, &sl) == BH_DROP && sl == 0u, "bt_off: a link drops");
+        h.s[0].st = HS_CONNECTING;
+        CHECK(ble_host_step(&h, T, &sl) == BH_CANCEL, "bt_off: a connect is cancelled");
+        h.s[0].st = HS_IDLE;
+        h.scan_on = 1;
+        CHECK(ble_host_step(&h, T, &sl) == BH_SCAN_OFF, "bt_off: a scan stops");
+        h.scan_on = 0;
+        CHECK(ble_host_step(&h, T, &sl) == BH_NONE, "bt_off: then nothing");
+        HCLR();
+        h.s[0].target = h.s[0].listed = h.s[0].tried = 1;
+        CHECK(ble_host_step(&h, T, &sl) == BH_SCAN_ON, "tried_waits: a failed connect -> not again until it is seen again (a scan)");
+        HCLR();
+        h.s[0].target = h.s[0].listed = 1;
+        h.s[0].rest_ms = T + 2000u;
+        CHECK(ble_host_step(&h, T, &sl) != BH_CONNECT && ble_host_step(&h, T + 2000u, &sl) == BH_CONNECT,
+              "rest: 2 s after a failure or a drop before the next connect");
+        HCLR();
+        h.s[0].target = h.s[0].listed = 1;
+        h.scan_on = 1;
+        h.scan_until = T + 9000u;
+        CHECK(ble_host_step(&h, T, &sl) == BH_SCAN_OFF, "connect_listed: scanning -> the scan stops first");
+        #undef HCLR
     }
     printf(fails ? "ble_central: %d FAILED\n" : "ble_central: all checks passed\n", fails);
     return fails != 0;
