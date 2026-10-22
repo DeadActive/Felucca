@@ -55,6 +55,7 @@ uint32_t core_audio_gap_us(void)                /* the longest gap between two a
     return g / 24u;
 }
 uint32_t core_ui_frames(void) { return felucca_dbg.ui_frames; }
+int core_ble_slow(void) { return bt_set_slow(song.playing); }
 void core_con_puts(const char *s)
 {
 #if FELUCCA_CDC

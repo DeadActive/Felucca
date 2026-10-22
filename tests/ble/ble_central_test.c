@@ -322,9 +322,11 @@ int main(void)
         h.s[0].st = HS_CANCELLING;
         h.s[1].target = h.s[1].listed = 1;
         CHECK(ble_host_step(&h, T, &sl) == BH_NONE, "cancelling_busy: the other slot waits for the cancel's completion");
-        CHECK(ble_fail_rest(0) == 2000u && ble_fail_rest(1) == 4000u && ble_fail_rest(2) == 8000u &&
-              ble_fail_rest(3) == 16000u && ble_fail_rest(9) == 16000u,
-              "fail_rest: 2 s after a failed connect, doubling to 16 s (each failure holds the audio off ~12 ms)");
+        CHECK(ble_fail_rest(0, 0) == 2000u && ble_fail_rest(1, 0) == 4000u && ble_fail_rest(2, 0) == 8000u &&
+              ble_fail_rest(3, 0) == 16000u && ble_fail_rest(9, 0) == 16000u,
+              "fail_rest: stopped: 2 s after a drop or a failed connect, doubling to 16 s");
+        CHECK(ble_fail_rest(0, 1) == 8000u && ble_fail_rest(1, 1) == 16000u && ble_fail_rest(5, 1) == 16000u,
+              "fail_rest: slow (RECONNECT SLOW, AUTO playing): 8 s, then 16 s (a refused try holds the audio off ~12 ms)");
         #undef HCLR
     }
     printf(fails ? "ble_central: %d FAILED\n" : "ble_central: all checks passed\n", fails);

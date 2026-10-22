@@ -89,17 +89,17 @@ static void bt_setup(int s)
     switch (s) {
     case BS_OFF: break;
     case BS_STARTING: btp.on = 1; bs.state = BLE_ST_STARTING; btp.sel = 3; break;
-    case BS_NONE: btp.on = 1; bs.state = BLE_ST_IDLE; btp.sel = 4; break;   /* nothing saved: the cursor on ADD */
-    case BS_DEVICES: btp.on = 1; bs.state = BLE_ST_IDLE; four(); btp.sel = 4; break;
+    case BS_NONE: btp.on = 1; bs.state = BLE_ST_IDLE; btp.sel = BT_SET_ROWS; break;   /* nothing saved: the cursor on ADD */
+    case BS_DEVICES: btp.on = 1; bs.state = BLE_ST_IDLE; four(); btp.sel = BT_SET_ROWS; break;
     case BS_SCROLLED:                                /* six saved, the cursor on ADD: the lines scrolled */
         btp.on = 1; bs.state = BLE_ST_IDLE; four();
         save(0x44, "nanoKEY Studio");
         save(0x55, "LPD8 MK2");
-        btp.sel = 4 + 6;
+        btp.sel = BT_SET_ROWS + 6;
         break;
-    case BS_FORGET: btp.on = 1; bs.state = BLE_ST_IDLE; four(); btp.sel = 6; btp.confirm = 3; break;
+    case BS_FORGET: btp.on = 1; bs.state = BLE_ST_IDLE; four(); btp.sel = BT_SET_ROWS + 2; btp.confirm = 3; break;
     case BS_ADD:                                     /* the ADD list: BLE-MIDI first, a nameless one, the odd name */
-        btp.on = 1; bs.state = BLE_ST_IDLE; save(0x11, "SMC-Mixer"); btp.sel = 5; btp.add = 1; btp.asel = 2;
+        btp.on = 1; bs.state = BLE_ST_IDLE; save(0x11, "SMC-Mixer"); btp.sel = BT_SET_ROWS + 1; btp.add = 1; btp.asel = 2;
         btp.add_t0 = fm1_ms - 2500u;                 /* (its scan running: SCANNING 6 S) */
         dev(0, 0x11, 0, 1, -40, "SMC-Mixer");        /* (saved: not listed) */
         dev(1, 0x9A, 1, 0, -40, "");
@@ -113,11 +113,11 @@ static void bt_setup(int s)
         dev(9, 0xAA, 1, 0, -102, "TENTH (NOT LISTED)");
         break;
     case BS_ADD_EMPTY:                               /* its scan over, nothing found */
-        btp.on = 1; bs.state = BLE_ST_IDLE; btp.sel = 4; btp.add = 1; btp.add_t0 = fm1_ms - 9000u;
+        btp.on = 1; bs.state = BLE_ST_IDLE; btp.sel = BT_SET_ROWS; btp.add = 1; btp.add_t0 = fm1_ms - 9000u;
         break;
     case BS_FAILED: bs.state = BLE_ST_FAILED; bs.err = "NO RF TRIM IN FLASH"; four(); break;
     case BS_ERROR:
-        btp.on = 1; bs.state = BLE_ST_IDLE; bs.err = "DISCONNECTED 0x08"; bs.code = 8; four(); btp.sel = 7;
+        btp.on = 1; bs.state = BLE_ST_IDLE; bs.err = "DISCONNECTED 0x08"; bs.code = 8; four(); btp.sel = BT_SET_ROWS + 3;
         break;
     case BS_REC: btp.on = 1; bs.state = BLE_ST_IDLE; song.rec = 1; break;   /* (the head: the REC mark beside BACK) */
     case BS_DEV_WAIT: {                              /* ROLE DEVICE: advertising, the cursor on ROLE */
@@ -188,7 +188,8 @@ int main(int argc, char **argv)
     {   /* what the page must show: the state, the rows, a device's tag and signal (GREY's last screen is not kept:
          * draw one and look for the words among the boxes the lint saw) */
         static const char *const WANT[] = {"ON, 2 CONNECTED", "BLUETOOTH", "AUTOSTART", "ROLE", "HOST", "MODE", "SMC-Mixer",
-                                           "CTRL", "FM-1 12F1", "FM-1", "Xkey Air 25", "NEAR", "ON", "AUTO"};
+                                           "CTRL", "FM-1 12F1", "FM-1", "Xkey Air 25", "NEAR", "ON", "AUTO",
+                                           "RECONNECT"};
         uint32_t i, j, miss = 0;
         bt_setup(BS_DEVICES);
         pal(UI_GREY_INDEX);

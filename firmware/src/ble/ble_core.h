@@ -28,6 +28,9 @@ int core_flash_read(uint32_t off, void *buf, uint32_t n);
 uint32_t core_audio_late(void);
 /* the longest gap between two audio half interrupts since the last call, us (2902 normal: more, the audio held off) */
 uint32_t core_audio_gap_us(void);
+/* RECONNECT SLOW, or AUTO while the transport plays (bt_set.c bt_set_slow): a host link rests longer after a drop
+ * or a failed connect (ble_fail_rest) */
+int core_ble_slow(void);
 /* the core's UI frame counter (felucca_dbg.ui_frames: once per main-loop pass), for the loop period */
 uint32_t core_ui_frames(void);
 /* the core's crash record (fm1_irq.h fm1_crash_t, .noinit, same layout): read only, for the console's `ble`

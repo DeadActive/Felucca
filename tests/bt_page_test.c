@@ -2,7 +2,7 @@
  * BLE MIDI: 2026 DEADACTIVE */
 /* The Bluetooth page (firmware/src/bt_page.c; docs/superpowers/specs/2026-10-13-ble-midi-design.md section 9) on the
  * host, built with FELUCCA_BLE=1 and the UI harness, driven through the real input (ui_input, menu_input): the row in
- * MENU > SYSTEM, the rows BLUETOOTH AUTOSTART ROLE MODE, the saved devices' lines (docs/superpowers/specs/
+ * MENU > SYSTEM, the rows BLUETOOTH AUTOSTART ROLE MODE RECONNECT, the saved devices' lines (docs/superpowers/specs/
  * 2026-10-22-bt-devices-design.md 5.1: each on its line, FORGET, use now), + ADD A DEVICE, the way back, the state line.
  * The BLE unit's entry points are stubs (ble_ui_stub.h: `bs`, the slots `bh`); the saved devices are bt_devs.c's. */
 #define UI_TEST_NO_MAIN 1
@@ -127,12 +127,12 @@ static void test_rows_host(void)
     ok("rows_host: PRESETS moves the cursor a row", btp.sel == 1u);
     turn(EN_PRESET, -1); frame();
     turn(EN_PRESET, -1); frame();
-    ok("rows_host: no device saved: the cursor wraps from BLUETOOTH to + ADD A DEVICE (the 5th row)", btp.sel == 4u);
+    ok("rows_host: no device saved: the cursor wraps from BLUETOOTH to + ADD A DEVICE (the 6th row)", btp.sel == 5u);
     save(A1, "SMC-Mixer");
     save(F1, "Felucca FM-1");
     frame();
-    row(6);
-    ok("rows_host: two saved: their lines are rows 5 and 6, + ADD A DEVICE the 7th", btp.sel == 6u && bt_page_rows() == 7u);
+    row(7);
+    ok("rows_host: two saved: their lines are rows 6 and 7, + ADD A DEVICE the 8th", btp.sel == 7u && bt_page_rows() == 8u);
     turn(EN_PRESET, 1); frame();
     ok("rows_host: and it wraps to BLUETOOTH", btp.sel == 0u);
 }
@@ -166,7 +166,7 @@ static void test_forget_row(void)
     save(A2, "Xkey Air 25");
     save(A1, "SMC-Mixer");
     frame();
-    row(4);                                         /* SMC-Mixer's line */
+    row(5);                                         /* SMC-Mixer's line */
     k1(-1);
     bt_state_text(t);
     ok("forget_row: a knob left asks first", str_eq(t, "FORGET SMC-Mixer?") && bt_devs_n() == 2u);
@@ -187,7 +187,7 @@ static void test_use_now(void)
     up(BLE_SLOT_CTRL, A1);
     dev(0, A2, 1, 1, -60, "Xkey Air 25");           /* Xkey around */
     frame();
-    row(5);
+    row(6);
     press(B_OCTUP);
     ok("use_now: OCT+ on a device around -> it is first", bt_devs_get(0, &d) && !memcmp(d.addr, A2, 6));
 }
@@ -205,7 +205,7 @@ static void test_add_flow(void)
     dev(1, F1, 0, 1, -70, "Felucca FM-1");
     dev(2, A2, 1, 0, -50, "TV");
     frame();
-    row(5);                                         /* + ADD A DEVICE */
+    row(6);                                         /* + ADD A DEVICE */
     targets = bh.targets[0] + bh.targets[1];
     press(B_OCTUP);
     ok("add_flow: OCT+ on ADD -> the list of nearby devices not saved, BLE-MIDI first", btp.add && btp.an == 2u &&
@@ -231,7 +231,7 @@ static void test_add_freeze(void)                    /* the user: the list kept 
     bs.state = BLE_ST_IDLE;
     dev(0, A1, 0, 1, -60, "SMC-Mixer");
     frame();
-    row(4);                                         /* + ADD A DEVICE (nothing saved) */
+    row(5);                                         /* + ADD A DEVICE (nothing saved) */
     press(B_OCTUP);
     bt_state_text(t);
     ok("add_freeze: ADD opens an 8 s scan, counted down on the state line", str_eq(t, "SCANNING 8 S") && btp.an == 1u);
@@ -264,7 +264,7 @@ static void test_add_freeze(void)                    /* the user: the list kept 
     k1(1);
     bs.state = BLE_ST_IDLE;
     frame();
-    row(4);
+    row(5);
     press(B_OCTUP);
     fm1_ms += 9000u;
     frame();
@@ -339,16 +339,56 @@ static void test_role(void)
     ok("role_two: a knob right -> DEVICE, saved, handed over", saved().role == 1u && bs_role == 1);
     k1(1);
     ok("role_two: it stops at DEVICE", saved().role == 1u);
-    ok("role_two: ROLE DEVICE -> no device lines, no ADD (four rows)", bt_page_rows() == 4u);
+    ok("role_two: ROLE DEVICE -> no device lines, no ADD (five rows)", bt_page_rows() == 5u);
     turn(EN_PRESET, 1); frame();
     turn(EN_PRESET, 1); frame();
-    ok("role_two: the cursor wraps after MODE", btp.sel == 0u);
+    turn(EN_PRESET, 1); frame();
+    ok("role_two: the cursor wraps after RECONNECT", btp.sel == 0u);
     bs.state = BLE_ST_ADVERTISING;
     text_is_("ROLE DEVICE: the state line while advertising", "WAITING FOR A HOST");
     row(2);
     press(B_OCTUP);
     ok("role_two: OCT+ toggles -> HOST, saved, handed over; the lines are back", !saved().role && bs_role == 0 &&
-       bt_page_rows() == 6u);
+       bt_page_rows() == 7u);
+}
+
+/* RECONNECT (the user: a Bluetooth setting, the reconnection rate): how long a host link rests after a drop or a
+ * failed connect (ble_central.c ble_fail_rest): FAST 2 s doubling to 16 s, SLOW 8 s then 16 s, AUTO SLOW while the
+ * transport plays (a mixer refuses for ~8 s after a drop; each refused try holds the audio off ~12 ms), FAST stopped */
+static void test_reconnect_row(void)
+{
+    bt_set_t s;
+    fresh();
+    row(4);
+    ok("reconnect: the fifth row is RECONNECT, AUTO by default (every older record too)",
+       btp.sel == 4u && saved().rate == BT_RATE_AUTO);
+    ok("reconnect: AUTO -> slow only while the transport plays", bt_set_slow(1) && !bt_set_slow(0));
+    k1(1);
+    ok("reconnect: a knob right: FAST, saved", saved().rate == BT_RATE_FAST);
+    ok("reconnect: FAST -> never slow", !bt_set_slow(1) && !bt_set_slow(0));
+    k1(1);
+    ok("reconnect: SLOW", saved().rate == BT_RATE_SLOW);
+    ok("reconnect: SLOW -> always slow", bt_set_slow(1) && bt_set_slow(0));
+    k1(1);
+    ok("reconnect: stops at SLOW", saved().rate == BT_RATE_SLOW);
+    k1(-1);
+    k1(-1);
+    k1(-1);
+    ok("reconnect: stops at AUTO", saved().rate == BT_RATE_AUTO);
+    press(B_OCTUP);
+    press(B_OCTUP);
+    ok("reconnect: OCT+ steps", saved().rate == BT_RATE_SLOW);
+    press(B_OCTUP);
+    ok("reconnect: and wraps", saved().rate == BT_RATE_AUTO);
+    row(1);
+    press(B_OCTUP);                                 /* AUTOSTART ON */
+    row(3);
+    k1(1);                                          /* MODE SMC DAW */
+    row(4);
+    press(B_OCTUP);
+    s = saved();
+    ok("reconnect: kept with AUTOSTART and MODE, each kept when another changes",
+       s.rate == BT_RATE_FAST && s.autostart && s.mode == BT_MODE_SMC);
 }
 
 static void test_autostart_row(void)
@@ -439,8 +479,8 @@ static void test_close(void)
     fresh();
     k1(1);
     bs.state = BLE_ST_IDLE;
-    row(4);
-    press(B_OCTUP);                                 /* ADD (no saved device: the 5th row) */
+    row(5);
+    press(B_OCTUP);                                 /* ADD (no saved device: the 6th row) */
     fm1_in.buttons |= 1u << panel.btn[B_HOME];       /* HOME pressed: the menu closes, from the page too */
     host_pressed |= 1u << panel.btn[B_HOME];
     frame();
@@ -511,6 +551,7 @@ int main(void)
     test_on_off();
     test_mode();
     test_role();
+    test_reconnect_row();
     test_autostart_row();
     test_autostart();
     test_close();

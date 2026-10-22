@@ -124,6 +124,12 @@ row, OCT+ acts, OCT- goes back.
   without radio time taken from FM-Link while playing) *(the designer's call)*; never while the ADD list's own scan runs.
 - After a lost link: reconnect by itself, indefinitely, while Bluetooth is ON. The user must never have to re-pick a
   saved device.
+- **RECONNECT** (added 2026-10-22, the user: "leave it as bluetooth setting, like reconnection rate"; a fifth row
+  under MODE, saved; the device lines show three at a time): how long a host link rests after a drop or a refused
+  connect. **FAST** 2 s, doubling to 16 s; **SLOW** 8 s, then 16 s; **AUTO** (the default) SLOW while the transport
+  plays, FAST while stopped. Measured on the FM-1: each refused connect holds the interrupts off ~12 ms inside the
+  Bluetooth libraries (several late audio blocks), and a mixer that dropped advertises at once but refuses connects
+  for ~8 s.
 - BLUETOOTH OFF / AUTOSTART: as today.
 
 ### 5.4 What each link carries

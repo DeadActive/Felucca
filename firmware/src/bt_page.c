@@ -4,8 +4,8 @@
 /* FELUCCA_BLE (felucca.c includes it after ble/ble_core.h, bt_set.c, bt_midi.c and bt_devs.c; ui_menu.c declares its
  * entry points): the Bluetooth page, MENU > SYSTEM > BLUETOOTH, ui.menu BT_MENU (docs/superpowers/specs/
  * 2026-10-22-bt-devices-design.md 5.1, mockup A). A state line (and the last error), the rows BLUETOOTH, AUTOSTART,
- * ROLE (HOST, DEVICE) and MODE, then (HOST) the saved devices, a line each (connected or not, its name, CTRL or FM-1,
- * ON / NEAR / AWAY), four in view, and + ADD A DEVICE. On a device line a knob left asks FORGET <name>? on the state
+ * ROLE (HOST, DEVICE), MODE and RECONNECT (AUTO, FAST, SLOW: bt_set.c bt_set_slow), then (HOST) the saved devices, a
+ * line each (connected or not, its name, CTRL or FM-1, ON / NEAR / AWAY), three in view, and + ADD A DEVICE. On a device line a knob left asks FORGET <name>? on the state
  * line (OCT+ yes, OCT- no) and OCT+ uses it now (the first of its kind); + ADD A DEVICE opens the scan list of nearby
  * devices not saved (BLE-MIDI ones first), found in BT_ADD_MS, then kept as they are (the user: a list that keeps
  * changing is hard to pick from): OCT+ saves and connects one, OCT- goes
@@ -14,20 +14,22 @@
  * menu's rows, HOME closes the menu.
  * BLUETOOTH ON is the only call of ble_user_start in the core (gate 3: tools/check_ble_boot.py TRIGGERS has
  * bt_page_on); Bluetooth is off at every power-on and ON is not saved, unless AUTOSTART is ON: then bt_page_auto
- * turns it on once, BT_AUTO_MS after the main loop began, after a clean boot only. AUTOSTART, ROLE, MODE and the saved
+ * turns it on once, BT_AUTO_MS after the main loop began, after a clean boot only. AUTOSTART, ROLE, MODE, RECONNECT, the saved
  * devices are saved at once (bt_set.c, bt_devs.c). Main loop only. */
-#define BT_SET_ROWS 4u                              /* BLUETOOTH AUTOSTART ROLE MODE, then (HOST) the devices, ADD */
+#define BT_SET_ROWS 5u                              /* BLUETOOTH AUTOSTART ROLE MODE RECONNECT, then (HOST) the
+                                                     * devices, ADD */
 #define BT_SHOW 8u                                  /* the ADD list's lines (the scan keeps 12) */
 #define BT_ADD_MS 8000u                             /* the ADD list's scan, then the list stays (the user: 8 s) */
-#define BT_VIS 4u                                   /* device lines in view (the cursor scrolls them) */
+#define BT_VIS 3u                                   /* device lines in view (the cursor scrolls them) */
 #define BT_SY 27                                    /* the state line's panel; the last error under it */
 #define BT_SH 20
 #define BT_EY 48
 #define BT_RY 67                                    /* the rows, 17 px, 1 px apart (the ADD list's too) */
 #define BT_RH 17
 #define BT_SPLIT 121                                /* the two bands meet in the gap above MODE */
-#define BT_DY 146                                   /* the device lines, 17 px, 1 px apart */
+#define BT_DY 164                                   /* the device lines, 17 px, 1 px apart */
 static const char *const BT_MODE_N[4] = {"AUTO", "SMC DAW", "MIDI", "FM-LINK"};
+static const char *const BT_RATE_N[3] = {"AUTO", "FAST", "SLOW"};
 static uint32_t bt_role(void) { bt_set_t s; bt_set_get(&s); return s.role; }   /* 1: ROLE DEVICE */
 static struct {
     uint8_t on;                                     /* BLUETOOTH ON (not saved) */
@@ -325,15 +327,20 @@ static void bt_page_input(uint32_t oct)             /* oct: ui_input.c oct_taps 
             btp.top = 0;
         }
         break;
-    case 3:                                         /* MODE: a knob steps and stops at the ends; OCT+ wraps */
+    case 3:                                         /* MODE, RECONNECT: a knob steps and stops at the ends; OCT+ */
+    case 4: {                                       /* wraps; saved */
+        uint8_t *v;
+        uint32_t m;
         bt_set_get(&set);
-        k = s > 0 ? (set.mode < BT_MODE_LINK ? set.mode + 1u : BT_MODE_LINK)
-          : s < 0 ? (set.mode ? set.mode - 1u : 0u) : ok ? (set.mode + 1u) % 4u : set.mode;
-        if (k != set.mode) {
-            set.mode = (uint8_t)k;
+        v = btp.sel == 3u ? &set.mode : &set.rate;
+        m = btp.sel == 3u ? BT_MODE_LINK : BT_RATE_SLOW;
+        k = s > 0 ? (*v < m ? *v + 1u : m) : s < 0 ? (*v ? *v - 1u : 0u) : ok ? (*v < m ? *v + 1u : 0u) : *v;
+        if (k != *v) {
+            *v = (uint8_t)k;
             bt_set_put(&set);
         }
         break;
+    }
     default:
         k = btp.sel - BT_SET_ROWS;
         if (k == n) {                               /* + ADD A DEVICE */
@@ -405,7 +412,7 @@ static void bt_line(int32_t y, int sel, int first, const char *label, const char
         bt_text_r(MR_VR, vy, &AF_M, value, val, bg, tag ? 44 : MR_VR - 104);
     }
 }
-static void bt_row(uint32_t k, const char *label, const char *value)   /* one of the four rows */
+static void bt_row(uint32_t k, const char *label, const char *value)   /* one of the five rows */
 {
     bt_line(BT_RY + (int32_t)k * (BT_RH + 1), btp.sel == k, !k || btp.sel == k - 1u, label, 0, value, 1, 0);
 }
@@ -460,7 +467,7 @@ static void bt_page_draw(void)
     else if (btp.sel >= BT_SET_ROWS && btp.sel - BT_SET_ROWS < n)
         keys = DKEYS, on = 7u;
     else
-        on = 1u | (btp.sel < BT_SET_ROWS ? 2u : 0u) | 4u;   /* (VALUE: the four rows; OK: every row) */
+        on = 1u | (btp.sel < BT_SET_ROWS ? 2u : 0u) | 4u;   /* (VALUE: the five rows; OK: every row) */
     for (pass = 0; pass < 2u; pass++) {
         int32_t top_y = pass ? BT_SPLIT : H_HEAD;
         cv_begin(240, pass ? 240u - BT_SPLIT : BT_SPLIT - H_HEAD, T_BG);
@@ -505,6 +512,7 @@ static void bt_page_draw(void)
             bt_row(2, "ROLE", set.role ? "DEVICE" : "HOST");
         } else {
             bt_row(3, "MODE", BT_MODE_N[set.mode]);
+            bt_row(4, "RECONNECT", BT_RATE_N[set.rate]);
             if (!set.role) {                        /* the saved devices and ADD, BT_VIS lines in view */
                 uint32_t lines = n + 1u - btp.top < BT_VIS ? n + 1u - btp.top : BT_VIS;
                 if (!ux.style)

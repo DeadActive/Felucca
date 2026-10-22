@@ -120,10 +120,16 @@ static void test_settings(void)
     bt_set_put(&s);
     bt_set_get(&g);
     ok("settings: LINK round-trips (flags bit 5)", g.link && !g.role && g.autostart && (favorites.factory[13][30] & 0x20u));
-    favorites.factory[13][30] |= 0x40u;              /* a flag this firmware does not know */
+    s.rate = BT_RATE_SLOW;                           /* RECONNECT: bits 6-7 */
+    bt_set_put(&s);
+    bt_set_get(&g);
+    ok("settings: RECONNECT round-trips (flags bits 6-7), the rest kept", g.rate == BT_RATE_SLOW && g.link && g.autostart &&
+       (favorites.factory[13][30] & 0xC0u) == 0x80u);
+    favorites.factory[13][30] |= 0xC0u;              /* RECONNECT 3: no such value */
     favorites.factory[13][31] = bt_set_sum(&favorites.factory[13][24]);
     bt_set_get(&g);
-    ok("settings: an unknown flag bit is no device, MODE AUTO, AUTOSTART OFF, ROLE HOST", !g.has && g.mode == BT_MODE_AUTO && !g.autostart && !g.role && !g.link);
+    ok("settings: an unknown RECONNECT value is no device, MODE AUTO, AUTOSTART OFF, ROLE HOST, RECONNECT AUTO",
+       !g.rate && !g.has && g.mode == BT_MODE_AUTO && !g.autostart && !g.role && !g.link);
     memset(&s, 0, sizeof s);
     s.mode = BT_MODE_MIDI;
     bt_set_put(&s);

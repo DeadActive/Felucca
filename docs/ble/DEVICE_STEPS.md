@@ -78,10 +78,10 @@ pyserial`) writes every console line with the time. It waits for the FM-1 across
     order. Power-cycle A: both come back without a pick, their names shown. With a second controller saved and on,
     switch the mixer off for 10 s: the second does not take its place (30 s); after 40 s it does; switch the mixer on:
     it takes its place back. Send the log (`ctrl` / `fm1` lines: `reason`, `drops`, `tries`; `heap high`,
-    `failed allocations 0`, `fatal 0`).
+    `alloc fails 0`, `fatal 0`).
 9. **Under load.** A pattern plays while connected with faders and knobs moving. Expected: no audible glitch;
    `ble` shows `audio_late 0`, `errs 0`, `out_drops 0`, `in_drops 0`. Copy the `ble` output (`loop last / max`,
-   `longest BT task run`, `heap high`, each task's `stack free`, `irq_lowered 0`).
+   `task max` (the longest BT task run), `heap high`, each task's `stack free`, `irq_lowered 0`).
 10. **Saving with Bluetooth on.** Stop; save a project and a user preset; power off and on: both are there, the
     settings too (MODE, DEVICE).
 11. **Way back, Bluetooth on and connected.** Hold OCT- + OCT+ for 5 s. Expected: UPDATE MODE / UBOOT. Switch off

@@ -287,9 +287,15 @@ typedef struct {
     uint32_t scan_until, scan_rest;                 /* a background scan's window end; its rest's end */
 } ble_host_t;
 static int ble_due(uint32_t now, uint32_t at) { return (int32_t)(now - at) >= 0; }
-/* the rest after the n-th failed connect in a row (from 0): 2 s doubling to 16 s. Measured on the FM-1 (2026-10-22):
- * each failed connect holds the interrupts off ~12 ms inside the libraries, the audio late by several blocks */
-uint32_t ble_fail_rest(uint32_t n) { return 2000u << (n < 3u ? n : 3u); }
+/* the rest after the n-th failed connect (or a drop) in a row (from 0): 2 s doubling to 16 s; slow (RECONNECT SLOW,
+ * or AUTO while the transport plays: core_ble_slow): 8 s, then 16 s.
+ * Measured on the FM-1 (2026-10-22): each failed connect holds the interrupts off ~12 ms inside the libraries, the
+ * audio late by several blocks; a mixer that dropped advertises at once but refuses for ~8 s */
+uint32_t ble_fail_rest(uint32_t n, int slow)
+{
+    n += slow ? 2u : 0u;
+    return 2000u << (n < 3u ? n : 3u);
+}
 /* the next action and its slot (*slot) */
 uint32_t ble_host_step(const ble_host_t *h, uint32_t now_ms, uint32_t *slot)
 {
@@ -403,7 +409,7 @@ static void ble_slot_failed(uint32_t i)            /* a connect / discovery that
                                                     * each time; not again until seen anew */
 {
     uint32_t k;
-    hs.s[i].rest_ms = core_ms() + ble_fail_rest(sl[i].nfail);
+    hs.s[i].rest_ms = core_ms() + ble_fail_rest(sl[i].nfail, core_ble_slow());
     sl[i].nfail += sl[i].nfail < 3u;
     sl[i].fail = 1;
     sl[i].fail_seen = 0;
@@ -1012,7 +1018,7 @@ BLE_CON void ble_status(void)                      /* console `ble` */
     *o = 0;
     core_con_puts(b);
     o = put_s(b, "  rf trim ");
-    o = ble_rf_trim_at ? put_x(put_x(put_x(put_s(o, "stored, in the block at 0x"), ble_rf_trim_at >> 16), ble_rf_trim_at >> 8),
+    o = ble_rf_trim_at ? put_x(put_x(put_x(put_s(o, "at 0x"), ble_rf_trim_at >> 16), ble_rf_trim_at >> 8),
                                ble_rf_trim_at) : put_s(o, "not loaded");
     o = put_s(o, "\r\n");
     *o = 0;
@@ -1040,23 +1046,23 @@ BLE_CON void ble_status(void)                      /* console `ble` */
         core_con_puts(b);
     }
     if (fm1_crash.magic == 0x43525348u)          /* the core's crash record (fm1_irq.h): the console's `crash` */
-        core_con_puts("  a crash record is kept: `crash`\r\n");
+        core_con_puts("  crash record kept: `crash`\r\n");
     if (ble_diag.magic == BLE_DIAG_MAGIC) {     /* (.noinit: nothing to show before the first start) */
         o = put_u(put_s(b, "  heap high "), ble_diag.heap_high);
         o = put_u(put_s(o, " of "), sizeof ble_heap);
-        o = put_u(put_s(o, ", failed allocations "), ble_diag.alloc_fails);
-        o = put_s(o, " (kept over a reboot)\r\n");
+        o = put_u(put_s(o, " alloc fails "), ble_diag.alloc_fails);   /* (kept over a reboot) */
+        o = put_s(o, "\r\n");
         *o = 0;
         core_con_puts(b);
     } else {
-        core_con_puts("  heap: no record yet (ble start)\r\n");
+        core_con_puts("  heap: no record\r\n");
     }
     o = put_u(put_s(b, "  loop last "), loop.last_ms);
     o = put_u(put_s(o, " ms, max "), loop.max_ms);
-    o = put_u(put_s(o, " ms; longest BT task run "), ble_os_run_max_us(1));
+    o = put_u(put_s(o, " ms; task max "), ble_os_run_max_us(1));   /* the longest BT task run */
     o = put_u(put_s(o, " us; irq_off max "), fm1_ble_irq_max / 24u);   /* the libraries' longest interrupts-off */
     o = put_u(put_s(o, " us; audio gap max "), core_audio_gap_us());   /* 2902 normal: more, the audio held off */
-    o = put_s(o, " us (all since the last `ble`)\r\n");
+    o = put_s(o, " us\r\n");                  /* (all since the last `ble`) */
     *o = 0;
     core_con_puts(b);
     loop.max_ms = 0;
