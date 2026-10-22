@@ -449,7 +449,7 @@ static void cbk_packet_handler(uint8_t type, uint16_t channel, uint8_t *packet, 
     case BLE_SDK_GAP_EVENT_ADVERTISING_REPORT:  /* one report: le_net_central.c 960 */
         if (st == BLE_SCANNING || lk.st == BL_SCANNING) {
             const adv_report_t *r = (const adv_report_t *)(const void *)&packet[2];
-            ble_scan_report(&scan, r->address, r->address_type, r->rssi, r->data, r->length);
+            ble_scan_report(&scan, r->address, r->address_type, r->rssi, r->data, r->length, core_ms());
         }
         break;
     case BLE_SDK_HCI_EVENT_LE_META:              /* le_net_central.c 870-905: status packet[3], handle packet[4..5], */
