@@ -142,51 +142,41 @@ int ble_midi_text(uint32_t pkt, uint32_t *sx, char out[32])
 #endif
 
 /* ---- the console's `ble` words and the states they need (part 1b; pure, host-tested) ---- */
-enum { BLE_CMD_STATUS, BLE_CMD_START, BLE_CMD_SCAN, BLE_CMD_LIST, BLE_CMD_CONNECT, BLE_CMD_STOP, BLE_CMD_BAD };
+enum { BLE_CMD_STATUS, BLE_CMD_START, BLE_CMD_SCAN, BLE_CMD_LIST, BLE_CMD_STOP, BLE_CMD_BAD };
 
-BLE_CON uint32_t ble_cmd_parse(const char *s, uint32_t *n)   /* the words after `ble`; *n = connect's device (1-based) */
+/* the words after `ble`. (No `connect N` since the saved devices: the core picks each link's device every frame, so
+ * a console pick was overridden at once; the page's + ADD A DEVICE is the way) */
+BLE_CON uint32_t ble_cmd_parse(const char *s)
 {
-    static const char *const W[] = {"start", "scan", "list", "connect", "stop"};
+    static const char *const W[] = {"start", "scan", "list", "stop"};
     uint32_t i, k;
     while (*s == ' ')
         s++;
     if (!*s)
         return BLE_CMD_STATUS;
-    for (i = 0; i < 5u; i++) {
+    for (i = 0; i < 4u; i++) {
         for (k = 0; W[i][k] && s[k] == W[i][k]; k++)
             ;
         if (W[i][k] || (s[k] && s[k] != ' '))
             continue;
-        s += k;
-        while (*s == ' ')
-            s++;
-        if (i != 3u)
-            return *s ? BLE_CMD_BAD : BLE_CMD_START + i;
-        for (*n = 0, k = 0; k < 3u && s[k] >= '0' && s[k] <= '9'; k++)
-            *n = *n * 10u + (uint32_t)(s[k] - '0');
-        if (!k)
-            return BLE_CMD_BAD;
         for (s += k; *s == ' '; s++)
             ;
-        return *s || *n < 1u || *n > BLE_SCAN_MAX ? BLE_CMD_BAD : BLE_CMD_CONNECT;
+        return *s ? BLE_CMD_BAD : BLE_CMD_START + i;
     }
     return BLE_CMD_BAD;
 }
 
-/* 0: the command may run in this state; else why not (one console line). listed = the devices `ble list` shows */
-BLE_CON const char *ble_cmd_refuse(uint32_t cmd, uint32_t state, uint32_t listed, uint32_t n)
+/* 0: the command may run in this state; else why not (one console line) */
+BLE_CON const char *ble_cmd_refuse(uint32_t cmd, uint32_t state)
 {
     switch (cmd) {
     case BLE_CMD_START:
         return state == BLE_OFF ? 0 : state == BLE_FAILED ? "ble: the start failed; power off and on to retry"
                                                           : "ble: already started";
     case BLE_CMD_SCAN:
-    case BLE_CMD_CONNECT:
         if (state == BLE_OFF)
             return "ble: not started (ble start)";
-        if (state != BLE_IDLE)
-            return "ble: busy (this needs IDLE)";
-        return cmd == BLE_CMD_CONNECT && n > listed ? "ble: no such device (ble list)" : 0;
+        return state != BLE_IDLE ? "ble: busy (this needs IDLE)" : 0;
     case BLE_CMD_STOP:
         return state >= BLE_CONNECTING && state <= BLE_RECEIVING ? 0 : "ble: not connected";
     default:
@@ -1018,8 +1008,9 @@ BLE_CON void ble_status(void)                      /* console `ble` */
     *o = 0;
     core_con_puts(b);
     o = put_s(b, "  rf trim ");
-    o = ble_rf_trim_at ? put_x(put_x(put_x(put_s(o, "at 0x"), ble_rf_trim_at >> 16), ble_rf_trim_at >> 8),
-                               ble_rf_trim_at) : put_s(o, "not loaded");
+    o = ble_rf_trim_at == 1u ? put_s(o, "kept copy")
+      : ble_rf_trim_at ? put_x(put_x(put_x(put_s(o, "at 0x"), ble_rf_trim_at >> 16), ble_rf_trim_at >> 8), ble_rf_trim_at)
+      : put_s(o, "not loaded");
     o = put_s(o, "\r\n");
     *o = 0;
     core_con_puts(b);
@@ -1036,17 +1027,14 @@ BLE_CON void ble_status(void)                      /* console `ble` */
         o = put_u(put_s(o, " stage "), ble_diag.stage);
         o = put_u(put_s(o, " task "), ble_diag.task);
         o = put_u(put_s(o, " irq_leaks "), ble_diag.irq_leaks);
-        o = put_s(o, "\r\n");
-        *o = 0;
-        core_con_puts(b);
-        o = put_u(put_s(b, "  fatal "), ble_diag.fatal);   /* 1 assert, 2 reset request, 3 a stack overflow */
+        o = put_u(put_s(o, " fatal "), ble_diag.fatal);   /* 1 assert, 2 reset request, 3 a stack overflow */
         o = put_u(put_s(o, " irq_lowered "), ble_diag.irq_lowered);
         o = put_s(o, "\r\n");
         *o = 0;
         core_con_puts(b);
     }
     if (fm1_crash.magic == 0x43525348u)          /* the core's crash record (fm1_irq.h): the console's `crash` */
-        core_con_puts("  crash record kept: `crash`\r\n");
+        core_con_puts("  crash kept: `crash`\r\n");
     if (ble_diag.magic == BLE_DIAG_MAGIC) {     /* (.noinit: nothing to show before the first start) */
         o = put_u(put_s(b, "  heap high "), ble_diag.heap_high);
         o = put_u(put_s(o, " of "), sizeof ble_heap);
@@ -1097,10 +1085,8 @@ BLE_CON static void say_state(void)
 }
 BLE_CON void ble_console(const char *args)
 {
-    uint32_t n = 0, cmd = ble_cmd_parse(args, &n);
-    const char *no = ble_cmd_refuse(cmd, ctrl_up || hs.s[1].st == HS_UP ? BLE_SUBSCRIBED : st, ble_listed(), n);
-    uint8_t idx[BLE_SCAN_MAX];
-    const ble_dev_t *d;
+    uint32_t cmd = ble_cmd_parse(args);
+    const char *no = ble_cmd_refuse(cmd, ctrl_up || hs.s[1].st == HS_UP ? BLE_SUBSCRIBED : st);
     if (no) {
         core_con_puts(no);
         core_con_puts("\r\n");
@@ -1111,15 +1097,9 @@ BLE_CON void ble_console(const char *args)
     case BLE_CMD_LIST: ble_list(); return;
     case BLE_CMD_START: ble_user_start(); break;
     case BLE_CMD_SCAN: console_scan_until = core_ms() + 10000u; break;   /* (a 10 s scan beside the links) */
-    case BLE_CMD_CONNECT:                          /* the device as its kind's slot's target (until the core's next) */
-        ble_scan_sorted(&scan, idx);
-        d = &scan.dev[idx[n - 1u]];
-        ble_ui_slot_target(!memcmp(d->name, "Felucca FM-1", 12) ? 1u : 0u, d->addr, d->addr_type);
-        want = 1;
-        break;
     case BLE_CMD_STOP: want = 0; break;            /* (BLUETOOTH ON on the page wants them again) */
     default:
-        core_con_puts("ble [start | scan | list | connect N | stop]\r\n");
+        core_con_puts("ble [start | scan | list | stop]\r\n");
         return;
     }
     say_state();

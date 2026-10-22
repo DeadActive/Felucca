@@ -179,7 +179,7 @@ A project saved with CLK BLE opens in the plain build with CLK TRS (its last sou
 ## The console
 
 The USB serial console (MENU > SYSTEM > USB SERIAL ON) has `ble` (state, counters, each host link, the heap, the
-loop period, each task's free stack, the scan list, FM-Link's packets), and `ble start`, `ble scan`, `ble list`, `ble connect N`,
+loop period, each task's free stack, the scan list, FM-Link's packets), and `ble start`, `ble scan`, `ble list`,
 `ble stop`. `fml` shows FM-Link: the role, the peer, the clock offset and whether it is known, the leader's state and BPM,
 the follower's beat.
 

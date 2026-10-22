@@ -44,6 +44,11 @@ extern const struct {
 #endif
 /* this FM-1's Bluetooth address: a random static address made once and kept in the settings (bt_devs.c bt_mac) */
 void core_ble_mac(uint8_t mac[6]);
+/* the radio calibration (68 bytes, the stock config store's item 187: ble_vm.c), kept in the firmware's settings:
+ * get 1 and the copy (0 none), put keeps this one (saved). The unit uses the copy when the store no longer has it;
+ * it looks once at each power-on (ble_service's first call, Bluetooth off too) and at each start */
+int core_rf_keep_get(uint8_t rec[68]);
+void core_rf_keep_put(const uint8_t rec[68]);
 /* console (CDC) */
 void core_con_puts(const char *s);
 /* BLE MIDI in and the link, from ble_service (the main loop): each received USB-MIDI packet (cable 0) in order, while

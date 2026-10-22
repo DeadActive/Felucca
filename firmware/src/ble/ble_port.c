@@ -212,13 +212,17 @@ const uint8_t WIFI_PA_ENABLE = 0, wifi_temperature_drift_trim_on = 0;
  * crashes here (fm1-lsdj docs/ble/DEVICE_STEPS.md, round 4): with a valid record, wf_rf_common_init skips wf_rf_trim */
 const uint8_t RFIinitUseTrimValue = 1;
 static uint8_t ble_rf_trim[BLE_VM_RF_TRIM_LEN];
-static uint32_t ble_rf_trim_at;                          /* flash offset of the record used, 0 = none */
+static uint32_t ble_rf_trim_at;                          /* flash offset of the record used, 1 the kept copy, 0 none */
 #define BLE_VM_FROM 0xE5000u                             /* the plain area the stock config store lives in */
 #define BLE_VM_TO 0xFC000u
-static __attribute__((unused)) int ble_rf_trim_load(void)  /* scan the config store; 1 = a valid record found */
+/* scan the config store; 1 = a record for the radio (the store's, else the copy the firmware kept: core_rf_keep_get).
+ * The store's is handed to the firmware to keep whenever its copy is missing or another (ble_vm_rf_pick) */
+static __attribute__((unused)) int ble_rf_trim_load(void)
 {
     static uint8_t buf[512];
-    uint32_t off;
+    uint8_t kept[BLE_VM_RF_TRIM_LEN], found[BLE_VM_RF_TRIM_LEN];
+    uint32_t off, from;
+    int keep;
     ble_rf_trim_at = 0;
     for (off = BLE_VM_FROM; off < BLE_VM_TO; off += sizeof buf - (4u + BLE_VM_RF_TRIM_LEN)) {
         uint32_t n = BLE_VM_TO - off < sizeof buf ? BLE_VM_TO - off : sizeof buf;
@@ -227,13 +231,18 @@ static __attribute__((unused)) int ble_rf_trim_load(void)  /* scan the config st
         if (core_flash_read(off, buf, n))
             return 0;
         if (ble_vm_rf_trim(buf, n, rec)) {
-            memcpy(ble_rf_trim, rec, sizeof rec);
+            memcpy(found, rec, sizeof rec);
             ble_rf_trim_at = off;
         }
         if (n < sizeof buf)
             break;
     }
-    return ble_rf_trim_at != 0;
+    from = ble_vm_rf_pick(ble_rf_trim_at ? found : 0, core_rf_keep_get(kept) ? kept : 0, ble_rf_trim, &keep);
+    if (keep)
+        core_rf_keep_put(ble_rf_trim);
+    if (from == 2u)
+        ble_rf_trim_at = 1;
+    return from != 0;
 }
 uint8_t RTDebugLevel = 0;
 int wifi_get_rf_trim_data(void *info, int size)

@@ -14,7 +14,11 @@
  * those bytes as saved (bt_set.c's rule). A change is saved with the settings (settings_save). Main loop only.
  *   And this FM-1's own Bluetooth address (bt_mac, core_ble_mac: ble_start), so other FM-1s can save it: made once (a
  * random static address, as ble_start made one at each start before) and kept in favorites.factory[13][16..23]
- * (SLICE's presets 128..191, which do not exist): [16..21] the address, [22] 0xA5, [23] the XOR of [16..22] ^ 0x3C. */
+ * (SLICE's presets 128..191, which do not exist): [16..21] the address, [22] 0xA5, [23] the XOR of [16..22] ^ 0x3C.
+ *   And the radio calibration's copy (bt_rf_io, core_rf_keep_*: the BLE unit hands it over whenever it
+ * finds it in the stock config store, which Felucca's autosave (0xE5000..0xE6FFF) may cover on some units): 68 bytes
+ * in favorites.factory[9..11][8..31] (PHYS', DRUM's and NOISE's presets 64..255, which do not exist; bt_devs_test
+ * checks), the 72nd byte 0xA5 when one is kept (the record checks itself: ble_vm.c ble_vm_rf_ok). */
 #define BT_NDEV 8u
 #define BT_AROUND_MS 20000u
 #define BT_GRACE_MS 30000u
@@ -207,6 +211,23 @@ static void bt_devs_frame(void)
             scan = 1;                              /* (on a lower one: look for the first, in windows) */
     }
     ble_ui_scan_want((int)scan);
+}
+
+static int bt_rf_io(uint8_t *rec, int put)        /* the copy: put 1 keeps rec (saved), 0 reads it (1 = one is kept) */
+{
+    uint32_t r;
+    if (!put && favorites.factory[11][31] != 0xA5u)
+        return 0;
+    for (r = 0; r < 3u; r++)                       /* 24 + 24 + 20 bytes */
+        if (put)
+            memcpy(&favorites.factory[9u + r][8], rec + 24u * r, r < 2u ? 24u : 20u);
+        else
+            memcpy(rec + 24u * r, &favorites.factory[9u + r][8], r < 2u ? 24u : 20u);
+    if (put) {
+        favorites.factory[11][31] = 0xA5u;
+        settings_save();
+    }
+    return 1;
 }
 
 static uint8_t bt_mac_sum(const uint8_t *r)

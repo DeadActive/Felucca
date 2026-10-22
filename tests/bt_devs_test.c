@@ -296,6 +296,27 @@ int main(void)
            !memcmp(&favorites.factory[13][16], m2, 6));
     }
 
+    {   /* rf_keep: the radio calibration's copy (core_rf_keep_*) in favorites.factory[9..11][8..31] */
+        uint8_t rec[68], got[68], row0[8 * 3];
+        uint32_t e, i, clean = 1;
+        for (e = 9; e <= 11u; e++)
+            clean &= ENGINES[e]->npresets <= 64u;  /* (bytes 8..31: presets 64..255) */
+        ok("rf_keep: PHYS', DRUM's and NOISE's presets stop below 64 (their rows' bytes 8..31 are free)", clean);
+        memset(&favorites, 0, sizeof favorites);
+        ok("rf_keep: none kept in an older record (all zero)", !bt_rf_io(got, 0));
+        for (i = 0; i < 68u; i++)
+            rec[i] = (uint8_t)(i * 7u + 3u);
+        for (e = 0; e < 3u; e++) {
+            memset(favorites.factory[9u + e], 0x5A, 8);   /* (the favourites' own bits stay) */
+            memcpy(row0 + e * 8u, favorites.factory[9u + e], 8);
+        }
+        (void)bt_rf_io(rec, 1);
+        ok("rf_keep: a kept copy reads back as put", bt_rf_io(got, 0) && !memcmp(got, rec, 68));
+        for (e = 0, i = 1; e < 3u; e++)
+            i &= !memcmp(favorites.factory[9u + e], row0 + e * 8u, 8);
+        ok("rf_keep: only bytes 8..31 of rows 9..11 written (presets 0..63's bits kept)", i &&
+           favorites.factory[12][8] == 0 && favorites.factory[8][31] == 0);
+    }
     printf(fails ? "bt_devs: %d FAILED\n" : "bt_devs: all checks passed\n", fails);
     return fails != 0;
 }

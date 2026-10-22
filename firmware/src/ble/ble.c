@@ -56,8 +56,15 @@ int ble_started(void) { return ble_on; }
 #include "ble/ble_central.c"
 void ble_service(void)                             /* the main loop (ed_service): a 5 ms slice for the BT tasks */
 {
+    static uint8_t kept;
     uint32_t pkt;
     ble_loop_note(&loop, core_ui_frames(), core_ms());   /* BT off too: the period to compare with */
+    if (!kept) {                                  /* once a power-on, BT off too: the radio calibration found in flash
+                                                   * handed to the firmware to keep (core_rf_keep_put) before its own
+                                                   * data can cover the store; a flash scan, no Bluetooth started */
+        kept = 1;
+        (void)ble_rf_trim_load();
+    }
     if (!ble_on)
         return;
     ble_os_service(5000);
