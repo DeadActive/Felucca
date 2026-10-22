@@ -223,6 +223,59 @@ static void test_add_flow(void)
     ok("add_flow: OCT- in the list -> back on the page, nothing added", !btp.add && ui.menu == BT_MENU && bt_devs_n() == 2u);
 }
 
+static void test_add_freeze(void)                    /* the user: the list kept changing; an 8 s scan, then it stays */
+{
+    char t[40];
+    fresh();
+    k1(1);
+    bs.state = BLE_ST_IDLE;
+    dev(0, A1, 0, 1, -60, "SMC-Mixer");
+    frame();
+    row(4);                                         /* + ADD A DEVICE (nothing saved) */
+    press(B_OCTUP);
+    bt_state_text(t);
+    ok("add_freeze: ADD opens an 8 s scan, counted down on the state line", str_eq(t, "SCANNING 8 S") && btp.an == 1u);
+    fm1_ms += 2500u;
+    dev(1, A2, 1, 1, -30, "Xkey Air 25");           /* found meanwhile, stronger */
+    frame();
+    bt_state_text(t);
+    ok("add_freeze: during the scan the list takes new devices", str_eq(t, "SCANNING 6 S") && btp.an == 2u);
+    fm1_ms += 5600u;                                /* 8.1 s */
+    frame();
+    bt_state_text(t);
+    ok("add_freeze: then the scan's end: ADD: PICK A DEVICE", str_eq(t, "ADD: PICK A DEVICE"));
+    {
+        ble_ui_dev_t was[2];
+        memcpy(was, btp.adev, sizeof was);
+        dev(2, F1, 0, 1, -20, "Felucca FM-1");      /* found after the end, strongest */
+        bs.dev[0].rssi = -10;                       /* a signal changes */
+        bs.dev[1].midi = 0;                         /* (it would sort elsewhere now) */
+        frame();
+        ok("add_freeze: after it the list stays as it was (no new device, no re-sort, no change)", btp.an == 2u &&
+           !memcmp(btp.adev, was, sizeof was));
+    }
+    fm1_ms += 60000u;                               /* (the scan list ages its entries out meanwhile) */
+    bs.ndev = 0;
+    frame();
+    ok("add_freeze: and stays while the scan list ages out", btp.an == 2u);
+    press(B_OCTUP);                                 /* pick the first */
+    ok("add_freeze: a pick from the kept list saves it", bt_devs_n() == 1u && !btp.add);
+    fresh();
+    k1(1);
+    bs.state = BLE_ST_IDLE;
+    frame();
+    row(4);
+    press(B_OCTUP);
+    fm1_ms += 9000u;
+    frame();
+    bt_state_text(t);
+    ok("add_freeze: nothing found -> NOTHING FOUND", str_eq(t, "NOTHING FOUND") && btp.an == 0u);
+    dev(0, A1, 0, 1, -60, "SMC-Mixer");
+    press(B_OCTUP);
+    bt_state_text(t);
+    ok("add_freeze: OCT+ then scans again", str_eq(t, "SCANNING 8 S") && btp.an == 1u);
+}
+
 static void test_on_off(void)
 {
     fresh();
@@ -454,6 +507,7 @@ int main(void)
     test_forget_row();
     test_use_now();
     test_add_flow();
+    test_add_freeze();
     test_on_off();
     test_mode();
     test_role();

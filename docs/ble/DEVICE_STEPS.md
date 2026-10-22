@@ -32,7 +32,8 @@ pyserial`) writes every console line with the time. It waits for the FM-1 across
    5 s; no tone, no crash, no reset. `ble` shows `rf trim stored`.
    - `FAILED NO RF TRIM IN FLASH` or `FAILED BT START TIMEOUT`: copy `ble` and `crash`, power off and on, stop here.
 4. **Add a device.** Switch the SMC-Mixer on in its DAW mode. PRESETS to `+ ADD A DEVICE`, OCT+. Expected:
-   `ADD: PICK A DEVICE`, the SMC-Mixer listed first with `MIDI` and its signal. PRESETS to it, OCT+. Expected: back on
+   `SCANNING 8 S` counting down, the SMC-Mixer listed first with `MIDI` and its signal; after 8 s `ADD: PICK A
+   DEVICE` and the list stays still. PRESETS to it, OCT+. Expected: back on
    the page, its line `SMC-Mixer CTRL`, then `ON` with a dot, the state `ON, 1 CONNECTED`, `BT CONNECTED` on the
    screen. On the mixer: SELECT 1 and STOP lit; the fader LEDs blink where a fader is away from its value. HOME closes
    the menu.

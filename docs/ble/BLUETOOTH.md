@@ -37,7 +37,7 @@ acts on it, OCT- goes back to the menu, HOME closes the menu.
 | ROLE | right DEVICE, left HOST (saved) | HOST / DEVICE |
 | MODE | AUTO, SMC DAW, MIDI, FM-LINK (stops at the ends; saved) | the next one (wraps) |
 | a saved device (ROLE HOST) | left: `FORGET <name>?` on the state line, OCT+ yes, OCT- no | NEAR: use it now |
-| + ADD A DEVICE (ROLE HOST) | - | the list of nearby devices not saved |
+| + ADD A DEVICE (ROLE HOST) | - | an 8 s scan for nearby devices not saved, then the list stays put |
 
 - **Bluetooth is off at every power-on** unless AUTOSTART is ON. ON starts it; it then stays started until power-off
   (OFF drops the links and stops connecting). ON itself is not saved.
@@ -61,8 +61,10 @@ The FM-1 keeps up to 8 saved devices, controllers and FM-1s, each on its own lin
 not, its name (an FM-1 as `FM-1` and the last four characters of its address, since they are all called Felucca
 FM-1), `CTRL` or `FM-1`, and `ON` (connected), `NEAR` (switched on, seen lately) or `AWAY`.
 
-- **+ ADD A DEVICE** lists the devices nearby that are not saved (BLE-MIDI ones first). OCT+ on one saves it at the
-  top of its kind and connects it. Nothing connected drops while the list is open.
+- **+ ADD A DEVICE** scans for 8 s (`SCANNING 8 S` counting down) and lists the devices nearby that are not saved
+  (BLE-MIDI ones first); then the list stays as it is, nothing moves under the cursor. OCT+ on one saves it at the top
+  of its kind and connects it; OCT- and ADD again scan again (`NOTHING FOUND`: OCT+ scans again). Nothing connected
+  drops while the list is open.
 - **Two links at once:** one controller and one FM-1. For each kind the FM-1 connects the first saved device that is
   around, in the order you picked them (ADD, or OCT+ on a NEAR line: "use it now", to the top). Connecting by itself
   never changes the order.

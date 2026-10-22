@@ -100,6 +100,7 @@ static void bt_setup(int s)
     case BS_FORGET: btp.on = 1; bs.state = BLE_ST_IDLE; four(); btp.sel = 6; btp.confirm = 3; break;
     case BS_ADD:                                     /* the ADD list: BLE-MIDI first, a nameless one, the odd name */
         btp.on = 1; bs.state = BLE_ST_IDLE; save(0x11, "SMC-Mixer"); btp.sel = 5; btp.add = 1; btp.asel = 2;
+        btp.add_t0 = fm1_ms - 2500u;                 /* (its scan running: SCANNING 6 S) */
         dev(0, 0x11, 0, 1, -40, "SMC-Mixer");        /* (saved: not listed) */
         dev(1, 0x9A, 1, 0, -40, "");
         dev(2, 0xF2, 0, 1, -59, "Felucca FM-1");
@@ -111,7 +112,9 @@ static void bt_setup(int s)
         dev(8, 0x99, 1, 0, -101, "NINTH");
         dev(9, 0xAA, 1, 0, -102, "TENTH (NOT LISTED)");
         break;
-    case BS_ADD_EMPTY: btp.on = 1; bs.state = BLE_ST_IDLE; btp.sel = 4; btp.add = 1; break;
+    case BS_ADD_EMPTY:                               /* its scan over, nothing found */
+        btp.on = 1; bs.state = BLE_ST_IDLE; btp.sel = 4; btp.add = 1; btp.add_t0 = fm1_ms - 9000u;
+        break;
     case BS_FAILED: bs.state = BLE_ST_FAILED; bs.err = "NO RF TRIM IN FLASH"; four(); break;
     case BS_ERROR:
         btp.on = 1; bs.state = BLE_ST_IDLE; bs.err = "DISCONNECTED 0x08"; bs.code = 8; four(); btp.sel = 7;

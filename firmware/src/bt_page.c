@@ -7,7 +7,8 @@
  * ROLE (HOST, DEVICE) and MODE, then (HOST) the saved devices, a line each (connected or not, its name, CTRL or FM-1,
  * ON / NEAR / AWAY), four in view, and + ADD A DEVICE. On a device line a knob left asks FORGET <name>? on the state
  * line (OCT+ yes, OCT- no) and OCT+ uses it now (the first of its kind); + ADD A DEVICE opens the scan list of nearby
- * devices not saved (BLE-MIDI ones first; the page scans while it is open): OCT+ saves and connects one, OCT- goes
+ * devices not saved (BLE-MIDI ones first), found in BT_ADD_MS, then kept as they are (the user: a list that keeps
+ * changing is hard to pick from): OCT+ saves and connects one, OCT- goes
  * back. ROLE DEVICE: the FM-1 is the BLE-MIDI device a host connects to; no device lines then. As in the menu:
  * PRESETS moves the cursor (it wraps), any of KNOB 1..4 changes the row, OCT+ acts on it, OCT- goes back to the
  * menu's rows, HOME closes the menu.
@@ -17,6 +18,7 @@
  * devices are saved at once (bt_set.c, bt_devs.c). Main loop only. */
 #define BT_SET_ROWS 4u                              /* BLUETOOTH AUTOSTART ROLE MODE, then (HOST) the devices, ADD */
 #define BT_SHOW 8u                                  /* the ADD list's lines (the scan keeps 12) */
+#define BT_ADD_MS 8000u                             /* the ADD list's scan, then the list stays (the user: 8 s) */
 #define BT_VIS 4u                                   /* device lines in view (the cursor scrolls them) */
 #define BT_SY 27                                    /* the state line's panel; the last error under it */
 #define BT_SH 20
@@ -32,6 +34,7 @@ static struct {
     uint8_t sel, top;                               /* the cursor (a row), the first device line in view */
     uint8_t confirm;                                /* FORGET asked for saved device confirm - 1 (0: none) */
     uint8_t add, asel, an;                          /* the ADD list open, its cursor, its devices */
+    uint32_t add_t0;                                /* .. its scan's start (BT_ADD_MS: then it stays) */
     ble_ui_dev_t adev[BT_SHOW];                     /* the ADD list as drawn: a pick takes these */
 } btp __attribute__((section(".pool")));
 
@@ -111,8 +114,15 @@ static void bt_state_text(char *o)                  /* the state line (40 B) */
         str_cpy(o, "CONNECTED ", 40);
         if (ble_ui_conn_name(t))
             t[23] = 0, bt_name(o + 10, t, 30);
-    } else if (btp.add) {
-        str_cpy(o, "ADD: PICK A DEVICE", 40);
+    } else if (btp.add) {                           /* its scan's seconds left, then what it found */
+        n = BT_ADD_MS - (fm1_ms - btp.add_t0);
+        if ((int32_t)n > 0) {
+            str_cpy(o, "SCANNING ", 40);
+            fmt_int(o + 9, (int32_t)((n + 999u) / 1000u));
+            str_cpy(o + str_len(o), " S", 40 - str_len(o));
+        } else {
+            str_cpy(o, btp.an ? "ADD: PICK A DEVICE" : "NOTHING FOUND", 40);
+        }
     } else if (!(n = bt_devs_n())) {
         str_cpy(o, "ON, NO DEVICE SAVED", 40);
     } else {
@@ -146,6 +156,8 @@ static void bt_add_list(void)
     ble_ui_dev_t d;
     uint8_t was[6];
     uint32_t i, k, pass, n = ble_ui_devs(), had = btp.asel < btp.an;
+    if (fm1_ms - btp.add_t0 >= BT_ADD_MS)
+        return;                                     /* (its scan is over: the list stays as it is) */
     if (had)
         memcpy(was, btp.adev[btp.asel].addr, 6);
     btp.an = 0;
@@ -243,6 +255,8 @@ static void bt_page_input(uint32_t oct)             /* oct: ui_input.c oct_taps 
             btp.asel = (uint8_t)((btp.asel + (s > 0 ? 1u : btp.an - 1u)) % btp.an);
         if (oct & 1u) {
             bt_add_close();
+        } else if (ok && !btp.an) {
+            btp.add_t0 = fm1_ms;                    /* (nothing found: OCT+ scans again) */
         } else if (ok && btp.asel < btp.an) {
             const ble_ui_dev_t *a = &btp.adev[btp.asel];
             bt_dev_t d;
@@ -330,6 +344,7 @@ static void bt_page_input(uint32_t oct)             /* oct: ui_input.c oct_taps 
             else if (ok) {
                 btp.add = 1;
                 btp.asel = btp.an = 0;
+                btp.add_t0 = fm1_ms;
             }
         } else if (s < 0) {                         /* a device: a knob left asks FORGET */
             btp.confirm = (uint8_t)(k + 1u);
@@ -474,7 +489,8 @@ static void bt_page_draw(void)
                 bt_line(y, btp.asel == v, !v || btp.asel == v - 1u, lb, a->midi ? "MIDI" : 0, r, 0, 0);
             }
             if (!btp.an && pass)
-                cv_free_text(MR_LX, BT_RY + 60, &AF_M, "LOOKING FOR DEVICES...", T_MID, T_BG, MR_VR - MR_LX);
+                cv_free_text(MR_LX, BT_RY + 60, &AF_M, fm1_ms - btp.add_t0 < BT_ADD_MS ? "LOOKING FOR DEVICES..." :
+                             "OCT+: SCAN AGAIN", T_MID, T_BG, MR_VR - MR_LX);
             if (pass)
                 cv_key_row(8, 232, MK_Y, keys, 3, on, T_BG);
             cv_oy = 0;
