@@ -12,6 +12,12 @@ See BUILDING.md for the toolchain and the SDK.
 
 The JieLi toolchain is Linux x86-64 only. JIELI_TOOLCHAIN points at it; on
 macOS (or with JIELI_DOCKER=1) each tool runs in a linux/amd64 container.
+
+FELUCCA_BLE=1 (BLE MIDI: 2026 DEADACTIVE, from Hortator): the Bluetooth build. firmware/src/ble/ (its own unit) and
+the JieLi BT libraries (tools/ble_libs.py, AC79_BT_SDK) are linked in through LTO with firmware/app_ble.ld, some
+built-in SAMPLE sets are left out for the room (BLE_SMP_DROP), and the build stops on any of its gates (the loader
+pin, the update path, no BT at boot, RAM code: docs/ble/). The package is felucca-ble.fwsc. BLE_MEASURE=1: the
+regions widened so an image that does not fit can be measured; never packaged. Unset: the build is as upstream's.
 """
 import argparse
 import hashlib
@@ -39,6 +45,9 @@ APP_SLOT = fm1pkg_make.APP_SLOT
 LOADER_LOAD = 0x01C0A800
 LOADER_NAME = b"usb_hid_ota.bin"    # the file name the SPL looks for
 DOCKER_IMAGE = os.environ.get("JIELI_DOCKER_IMAGE", "debian:bookworm-slim")
+SDK_MOUNT = None                    # Bluetooth builds: the JieLi BT SDK (tools/ble_libs.py), mounted read-only at /sdk
+BLE_SMP_DROP = "PIANO,FLUTE,SAX"    # Bluetooth builds: the built-in SAMPLE sets left out for the flash room
+                                    # (tools/gen_samples.py FELUCCA_SMP_DROP; docs/ble/FIT.md has the measurements)
 CFLAGS = ["-Os", "-ffunction-sections", "-fno-builtin", "-Wall", "-Wno-unused-function"]
 LINE = re.compile(r"^\s*([0-9a-f]+):\s+((?:[0-9a-f]{2} )+)\s*\t(.*)$")
 
@@ -51,6 +60,10 @@ SDK_SHA256 = {
 
 PRODUCT = "FM-1_900"                # package identity; release builds are FM-1_9XY
 VERSION = None                      # FELUCCA_VERSION for release builds (default: firmware/src/felucca.c)
+# FELUCCA_CPU2 (firmware/src/felucca.c), unset or 1, the default (1.6.1): the second core is built in, its entry and
+# stacks (firmware/hal/fm1_cpu1.S) linked and its waiting loop (.c1_text) checked; MENU > SYSTEM > 2ND CORE starts it
+# (OFF by default: one core, as 1.6). FELUCCA_CPU2=0: none of it is built (1.6's one-core code and RAM)
+CPU2 = os.environ.get("FELUCCA_CPU2") != "0"
 
 
 def toolchain():
@@ -72,11 +85,15 @@ def tc(tool, *args):
     if tool == "cc":                # the toolchain's cc wrapper needs python3; call clang directly
         tool, rel = "pi32v2/bin/clang", ["-target", "pi32v2", *rel]
     if use_docker():
-        cmd = ["docker", "run", "--rm", "--platform", "linux/amd64", "-v", f"{SRC}:/work",
+        sdk = ["-v", f"{SDK_MOUNT}:/sdk:ro"] if SDK_MOUNT else []
+        cmd = ["docker", "run", "--rm", "--platform", "linux/amd64", "-v", f"{SRC}:/work", *sdk,
                "-v", f"{toolchain()}:/opt/jieli:ro", "-w", "/work", DOCKER_IMAGE, f"/opt/jieli/{tool}", *rel]
     else:
         cmd = [str(toolchain() / tool), *rel]
-    r = subprocess.run(cmd, cwd=SRC, capture_output=True, text=True)
+    for _ in range(5):              # Docker's amd64 emulation now and then refuses to start a tool: again
+        r = subprocess.run(cmd, cwd=SRC, capture_output=True, text=True)
+        if not (r.returncode and use_docker() and "exec format error" in r.stdout + r.stderr):
+            break
     if r.returncode:
         sys.stderr.write(r.stdout + r.stderr)
         raise SystemExit(f"build: {tool} failed")
@@ -171,26 +188,81 @@ def build_loader():
     bss = [int(ln.split()[0], 16) for ln in syms.splitlines() if ln.rstrip().endswith("_bss_end")]
     print(f"loader: image {len(image)} B at {LOADER_LOAD:#x}" + (f", bss end {bss[0]:#x}" if bss else ""))
     print(f"loader: ota.bin {len(ota)} B")
+    if is_ble():                    # gate 1: a Bluetooth build ships the base release's update loader, no other
+        pin, got = ble_base("LOADER_SHA256"), hashlib.sha256(ota).hexdigest()
+        if got != pin:
+            raise SystemExit(f"loader: ota.bin {got} is not the pinned loader (tools/ble_base.txt)")
     return ota
+
+
+def is_ble():
+    return os.environ.get("FELUCCA_BLE") == "1"
+
+
+def ble_base(key):
+    """a value of tools/ble_base.txt (BLE_BASE_FILE: another copy, for the gates' own tests)"""
+    f = Path(os.environ.get("BLE_BASE_FILE") or SRC / "tools" / "ble_base.txt")
+    for ln in f.read_text().splitlines():
+        if ln.startswith(key + " "):
+            return ln.split()[1]
+    raise SystemExit(f"build: {f} has no {key}")
 
 
 # ---- app
 
-def ld_regions():
-    """firmware/app.ld's MEMORY regions: name -> (origin, length)"""
+REGION = r"^\s*(\w+)\s*\([rwx]+\)\s*:\s*ORIGIN\s*=\s*(\w+),\s*LENGTH\s*=\s*(\w+)"
+
+
+def ld_regions(script=None):
+    """a linker script's MEMORY regions (default firmware/app.ld): name -> (origin, length)"""
     regs = {}
-    for m in re.finditer(r"^\s*(\w+)\s*\([rwx]+\)\s*:\s*ORIGIN\s*=\s*(\w+),\s*LENGTH\s*=\s*(\w+)",
-                         (FW / "app.ld").read_text(), re.M):
+    for m in re.finditer(REGION, (script or FW / "app.ld").read_text(), re.M):
         n = m.group(3)
         regs[m.group(1)] = (int(m.group(2), 0), int(n[:-1], 0) * 1024 if n.endswith("K") else int(n, 0))
     return regs
 
 
+def core_object(flags, out):
+    """felucca.c -> out.o as the app's core is compiled (the main-loop functions built for size: tools/size_fns.py)"""
+    if os.environ.get("FELUCCA_SIZE") == "0":
+        tc("cc", *flags, "-c", FW / "src" / "felucca.c", "-o", out.with_suffix(".o"))
+        return
+    tc("cc", *flags, "-S", "-emit-llvm", "-Xclang", "-disable-llvm-optzns", "-c", FW / "src" / "felucca.c", "-o",
+       out.with_suffix(".ll"))
+    subprocess.run([sys.executable, SRC / "tools" / "size_fns.py", out.with_suffix(".ll"),
+                    out.with_name(out.name + "_size.ll")], check=True, stdout=subprocess.DEVNULL)
+    tc("cc", *[f for f in flags if not f.startswith(("-I", "-D", "-W"))], "-c", out.with_name(out.name + "_size.ll"),
+       "-o", out.with_suffix(".o"))
+
+
+def gate2c_listings(flags):
+    """gate 2c: the core compiled twice with the same flags, once as the plain build's (no FELUCCA_BLE) and once as
+    the Bluetooth build's, both without global merging (which small statics share a block depends on the whole
+    program: with it every function would address its data at other offsets), each linked with app.ld (the
+    Bluetooth one with empty BLE entry points) -> their listings. What differs between them in an update-path
+    function is what FELUCCA_BLE changes in that function's code, whatever inlining brought it there."""
+    g = OUT / "gate2c"
+    g.mkdir(exist_ok=True)
+    nomerge = ["-mllvm", "-enable-global-merge=false"]
+    out = {}
+    for tag, fl, extra in (("plain", [f for f in flags if f != "-DFELUCCA_BLE=1"], []),
+                           ("ble", flags, [OUT / "ble_stub.o"])):
+        core_object([*fl, *nomerge], g / tag)
+        tc("pi32v2/bin/ld", "-T", FW / "app.ld", OUT / "crt0.o", OUT / "fm1_vec.o", OUT / "fm1_isr.o",
+           *([OUT / "fm1_cpu1.o"] if CPU2 else []), g / f"{tag}.o", *extra, "-o", g / f"{tag}.elf")
+        out[tag] = tc("common/bin/objdump", "-d", g / f"{tag}.elf")
+        (g / f"{tag}.dis").write_text(out[tag])
+    return out["plain"], out["ble"]
+
+
 def build_app():
     flags = [*CFLAGS, "-Ifirmware/hal", "-Ifirmware/src", "-Ibuild/gen"]
+    ble = is_ble()
+    if ble:
+        flags.append("-DFELUCCA_BLE=1")
     for flag in ("FELUCCA_FLASH", "FELUCCA_OTA", "FELUCCA_OTA_DRYRUN", "FELUCCA_OTA_RAMONLY", "FELUCCA_CDC",
                  "FELUCCA_UART", "FELUCCA_UAC", "FELUCCA_UAC_TONE", "FELUCCA_UAC_48K", "FELUCCA_ICONS", "FELUCCA_SLICE", "FELUCCA_FM4",
-                 "FELUCCA_CDC_DEFAULT", "FELUCCA_UAC_AS_FIRST"):
+                 "FELUCCA_CDC_DEFAULT", "FELUCCA_UAC_AS_FIRST", "FELUCCA_CPU2"):
         v = os.environ.get(flag)    # unset: the default in firmware/src/felucca.c
         if v in ("0", "1"):
             flags.append(f"-D{flag}={v}")
@@ -206,33 +278,114 @@ def build_app():
     cmain = (("cc", *flags, "-S", "-emit-llvm", "-Xclang", "-disable-llvm-optzns", "-c",
               FW / "src" / "felucca.c", "-o", OUT / "felucca.ll") if size else
              ("cc", *flags, "-c", FW / "src" / "felucca.c", "-o", OUT / "felucca.o"))
+    asm, cfg_objs = [], []
+    if ble:                         # (from Hortator's build.py, fm1-lsdj 548ce73)
+        global SDK_MOUNT
+        import ble_libs
+        if not use_docker():
+            raise SystemExit("build: FELUCCA_BLE builds run the toolchain in Docker (the SDK is mounted at /sdk)")
+        ble_libs.libs()             # first: a missing SDK or a library that is not the pinned one stops here, named
+        SDK_MOUNT = str(ble_libs.SDK)
+        asm.append(("cc", "-c", FW / "hal" / "fm1_ctx.S", "-o", OUT / "fm1_ctx.o"))
+        (OUT / "blecfg").mkdir(exist_ok=True)
+        for src in ble_libs.SDK_CONFIG_SOURCES:     # the SDK's BT config as bitcode: LTO folds it into the libraries
+            obj = OUT / "blecfg" / (Path(src).stem + ".o")
+            asm.append(("cc", *ble_libs.SDK_CFLAGS, "-c", f"/sdk/{src}", "-o", obj))
+            cfg_objs.append(obj)
+        asm.append(("cc", "-mcpu=r3", "-Os", "-flto", "-Wall", "-c", SRC / ble_libs.LTO_STUBS, "-o",
+                    OUT / "blecfg" / "ble_lto_stubs.o"))
+        cfg_objs.append(OUT / "blecfg" / "ble_lto_stubs.o")
+    (OUT / "fm1_cpu1.o").unlink(missing_ok=True)
     tc_all(("cc", "-c", FW / "crt0.S", "-o", OUT / "crt0.o"),
            ("cc", "-c", FW / "hal" / "fm1_vec.S", "-o", OUT / "fm1_vec.o"),
            ("cc", "-c", FW / "hal" / "fm1_isr.S", "-o", OUT / "fm1_isr.o"),
-           cmain)
+           *([("cc", "-c", FW / "hal" / "fm1_cpu1.S", "-o", OUT / "fm1_cpu1.o")] if CPU2 else []),
+           *asm, cmain)
     if size:
         subprocess.run([sys.executable, SRC / "tools" / "size_fns.py", OUT / "felucca.ll", OUT / "felucca_size.ll"],
                        check=True)
         tc("cc", *[f for f in flags if not f.startswith(("-I", "-D", "-W"))], "-c",
            OUT / "felucca_size.ll", "-o", OUT / "felucca.o")
     elf = OUT / "felucca.elf"
-    tc("pi32v2/bin/ld", "-T", FW / "app.ld", OUT / "crt0.o", OUT / "fm1_vec.o", OUT / "fm1_isr.o",
-       OUT / "felucca.o", "-o", elf)
-    for sect in ("text.bin", "data.bin", "ramtext.bin"):
+    extra, ld, script = [], ("pi32v2/bin/ld",), FW / "app.ld"
+    cpu1 = [OUT / "fm1_cpu1.o"] if CPU2 else []     # (1.6.1: the second core's entry and stacks, in every link)
+    if ble:                         # (only then: the plain link is as upstream's)
+        libdir = OUT / "blelibs"
+        libdir.mkdir(exist_ok=True)
+        libs = ble_libs.libs()
+        for p in libs:              # inside SRC, so the Docker mount sees them
+            shutil.copy(p, libdir / Path(p).name)
+        objs = ble_libs.members(libdir)     # single SDK members (lbuf, circular_buf, wlc, encryption)
+        # the BLE module, its own unit: no static data shared with the core's unit. Long calls, as the libraries
+        # (large-program): the BLE unit calls RAM code (__wrap_memcpy, the delays). No global merging, as the
+        # object Hortator's device tests ran
+        tc("cc", *[f for f in flags if f != "-Ibuild/gen"], "-mllvm", "-enable-global-merge=false",
+           "-mllvm", "-pi32v2-large-program=true", "-c", FW / "src" / "ble" / "ble.c", "-o", OUT / "ble.o")
+        objs.append(OUT / "ble.o")
+        extra = [OUT / "fm1_ctx.o", *cfg_objs, *objs, "--start-group", *[libdir / Path(p).name for p in libs],
+                 "--end-group"]
+        # the BT libraries are LLVM bitcode: link them as the SDK does (apps/demo/demo_ble/board/wl82/Makefile
+        # LFLAGS), through the gold plugin with its codegen options; our objects stay native
+        ld = (*ld, "--plugin", "/opt/jieli/pi32v2/bin/LLVMgold.so", "--plugin-opt=mcpu=r3",
+              "--plugin-opt=-pi32v2-large-program=true", "--plugin-opt=-pi32v2-always-use-itblock=false",
+              "--plugin-opt=-dont-used-symbol-list=" + ",".join(ble_libs.LOG_FUNCS),
+              "--orphan-handling=error", "-Map", "build/felucca.map",   # every library section placed on purpose
+              # the libraries' (and the BLE unit's) memcpy calls go to ble_port.c's RAM copy, __wrap_memcpy: the
+              # radio calibration calls memcpy while the flash must not be read. --wrap redirects undefined
+              # references only, so the core's unit, which defines memcpy, keeps calling its own
+              "--wrap=memcpy")
+        script = FW / "app_ble.ld"
+        if ld_regions(script) != ld_regions():
+            raise SystemExit("build: firmware/app_ble.ld's MEMORY block differs from firmware/app.ld's")
+        if os.environ.get("BLE_MEASURE") == "1":
+            # measuring only (never packaged, main()): the XIP to the flash's end and the pool to the noinit area
+            # (over the stack symbols), so an image that does not fit yet still links and can be measured
+            pool_org = ld_regions(script)["POOL"][0]
+            lds = script.read_text()
+            lds, n = re.subn(r"(XIP\s+\(rx\)\s*: ORIGIN = 0x02000120, LENGTH = )\w+", r"\g<1>0xFFEE0", lds)
+            lds, k = re.subn(r"(POOL\s+\(rw\)\s*: ORIGIN = \w+, LENGTH = )\w+",
+                             rf"\g<1>{0x01C7C000 - pool_org:#x}", lds)
+            if n != 1 or k != 1:
+                raise SystemExit("build: BLE_MEASURE: app_ble.ld's XIP / POOL lines not found")
+            script = OUT / "app_ble_measure.ld"
+            script.write_text(lds)
+    tc(*ld, "-T", script, OUT / "crt0.o", OUT / "fm1_vec.o", OUT / "fm1_isr.o", *cpu1,
+       OUT / "felucca.o", *extra, "-o", elf)
+    if ble:                         # library code meant for RAM would have landed in XIP via *(.*_code): refuse
+        # .volatile_ram_code (wl_rf_common's wf_rf_trim) is placed in .ram_text with the trim (app_ble.ld);
+        # .bt_updata_ram_code = bredr_frame's BT-over-the-air-update helpers, never run, allowed in XIP (fm1-lsdj
+        # docs/ble/LINK_NOTES.md: checked by hand)
+        ok = {".volatile_ram_code", ".bt_updata_ram_code"}
+        ram_code = sorted(set(re.findall(r"^\s*(\.\S*ram_code\S*)", (OUT / "felucca.map").read_text(), re.M)) - ok)
+        if ram_code:
+            raise SystemExit(f"build: BT library RAM code sections linked (not placed in RAM): {ram_code}")
+    ref_dis = None
+    if ble:                         # gate 2b's reference: the same core object, empty BLE entry points, app.ld
+        tc("cc", *[f for f in flags if f != "-Ibuild/gen"], "-c", FW / "src" / "ble" / "ble_stub.c", "-o",
+           OUT / "ble_stub.o")
+        tc("pi32v2/bin/ld", "-T", FW / "app.ld", OUT / "crt0.o", OUT / "fm1_vec.o", OUT / "fm1_isr.o", *cpu1,
+           OUT / "felucca.o", OUT / "ble_stub.o", "-o", OUT / "felucca_ref.elf")
+        ref_dis = tc("common/bin/objdump", "-d", OUT / "felucca_ref.elf")
+        (OUT / "felucca_ref.dis").write_text(ref_dis)
+        ref_dis = (ref_dis, *gate2c_listings(flags))
+    for sect in ("text.bin", "data.bin", "ramtext.bin", "c1text.bin"):
         (OUT / sect).unlink(missing_ok=True)
     *_, syms, dis, rt = tc_all(("common/bin/objcopy", "-O", "binary", "-j", ".text", elf, OUT / "text.bin"),
                                ("common/bin/objcopy", "-O", "binary", "-j", ".data", elf, OUT / "data.bin"),
                                ("common/bin/objcopy", "-O", "binary", "-j", ".ram_text", elf, OUT / "ramtext.bin"),
+                               *([("common/bin/objcopy", "-O", "binary", "-j", ".c1_text", elf, OUT / "c1text.bin")]
+                                 if CPU2 else []),
                                ("common/bin/objdump", "-t", elf),
                                ("common/bin/objdump", "-d", elf),
-                               ("common/bin/objdump", "-d", "-j", ".ram_text", elf))
+                               ("common/bin/objdump", "-d", "-j", ".ram_text", *(("-j", ".c1_text") if CPU2 else ()),
+                                elf))
     (OUT / "felucca.dis").write_text(dis)
 
     def symv(name):
         return int(re.search(r"^([0-9a-f]+) .*\s" + name + r"$", syms, re.M).group(1), 16)
     img = bytearray((OUT / "text.bin").read_bytes())
-    # .ram_text and .data follow .text at their load addresses; crt0 copies them by words
-    for sect, lname in (("ramtext.bin", "_rt_load"), ("data.bin", "_data_load")):
+    # .ram_text, .c1_text and .data follow .text at their load addresses; crt0 / main copy them by words
+    for sect, lname in (("ramtext.bin", "_rt_load"), ("c1text.bin", "_c1_load"), ("data.bin", "_data_load")):
         load = symv(lname)
         if load % 4:
             raise SystemExit(f"{lname} {load:#x} is not word aligned")
@@ -244,21 +397,76 @@ def build_app():
             img += blob
     img += b"\xff" * (-len(img) % 4)
     (OUT / "felucca.bin").write_bytes(img)
-    return bytes(img), syms, dis, rt
+    return bytes(img), syms, dis, rt, ref_dis
 
 
-def check(img, syms, dis, rt):
+def rt_reach(rt):
+    """Bluetooth builds (the radio calibration runs from .ram_text and calls within it; fm1-lsdj 548ce73): RAM code
+    may call and jump only inside .ram_text, never through a register, and use no XIP address as data"""
+    def in_rt(a): return 0x01C00000 <= a < 0x01C06000
+    bad, calls = [], 0
+    for ln in rt.splitlines():
+        if not LINE.match(ln):
+            continue
+        if re.search(r"\b(call|goto)\s+r\d+\b", ln):
+            bad.append(ln)
+            continue
+        for a in re.findall(r"<[^>]*:\s*([0-9a-f]+)\s*>", ln):
+            if 0x02000000 <= int(a, 16) < 0x02100000 or (re.search(r"\b(call|goto)\b", ln) and not in_rt(int(a, 16))):
+                bad.append(ln)
+        calls += bool(re.search(r"\bcall\b", ln))
+    return bad, calls
+
+
+def check(img, syms, dis, rt, ble=False, measure=False):
     errors, notes = [], []
+    soft = notes if measure else errors          # BLE_MEASURE: the budgets are reported, not enforced
     m = re.search(r"^([0-9a-f]+) .*\s_start$", syms, re.M)
     if not m or int(m.group(1), 16) != APP_XIP:
         errors.append(f"_start is not at {APP_XIP:#x}")
     if img[:4] != bytes.fromhex("04818000"):
         errors.append(f"image starts with {img[:4].hex()}, not the entry stub")
-    rt_calls = [ln for ln in rt.splitlines() if re.search(r"\bcall\b", ln)]
-    if rt_calls:                    # RAM code runs with the flash off: no calls into XIP
+    # RAM code runs with the flash off: no calls into XIP. The second core's waiting loop (.c1_text) calls only its
+    # job, through the pointer core 0 handed it (a register: "call rN")
+    sect, rt_calls, c1_calls, c1_insns, rt_insns, rt_lines = None, [], [], 0, 0, []
+    for ln in rt.splitlines():
+        mm = re.match(r"^Disassembly of section (\S+):", ln)
+        if mm:
+            sect = mm.group(1)
+            continue
+        if not LINE.match(ln):
+            continue
+        if sect == ".c1_text":
+            c1_insns += 1
+            if re.search(r"\bcall\b", ln) and not re.search(r"\bcall\s+r\d+\b", ln):
+                c1_calls.append(ln.strip())
+        else:
+            rt_insns += 1
+            rt_lines.append(ln)
+            if re.search(r"\bcall\b", ln):
+                rt_calls.append(ln.strip())
+    if ble:                         # gate 4: the radio calibration's RAM code calls inside .ram_text only
+        rt_bad, n_calls = rt_reach("\n".join(rt_lines))
+        if rt_bad:
+            errors.append(f".ram_text reaches outside RAM: {rt_bad[:3]}")
+        else:
+            notes.append(f".ram_text: {rt_insns} insns, {n_calls} calls, all inside .ram_text, no XIP address")
+    elif rt_calls:
         errors.append(f".ram_text contains calls: {rt_calls[:3]}")
     else:
-        notes.append(f".ram_text: {len([ln for ln in rt.splitlines() if LINE.match(ln)])} insns, no calls")
+        notes.append(f".ram_text: {rt_insns} insns, no calls")
+    c1_syms = re.findall(r"\s(fm1_c1_\w+|_c1_ustack\w*|_c1_sstack\w*)$", syms, re.M)
+    if not CPU2:                    # FELUCCA_CPU2=0: nothing of the second core (no stack, waiting loop, mailbox)
+        if c1_insns or c1_syms:
+            errors.append(f"FELUCCA_CPU2=0 build holds second-core code or data: {sorted(set(c1_syms))[:4]}")
+        else:
+            notes.append("one core: no second-core code, stack or mailbox")
+    elif c1_calls:
+        errors.append(f".c1_text calls other than its job: {c1_calls[:3]}")
+    elif not c1_insns:
+        errors.append(".c1_text: the second core's waiting loop is missing (firmware/hal/fm1_cpu1.h fm1_c1_main)")
+    else:
+        notes.append(f".c1_text: {c1_insns} insns, only its job called")
     for ln in dis.splitlines():     # nothing may call or load an address in the chip ROM
         mm = LINE.match(ln)
         if not mm:
@@ -268,7 +476,11 @@ def check(img, syms, dis, rt):
             if 0xFFC00000 <= val < 0xFFD00000:
                 errors.append(f"reference to ROM address {val:#010x}")
     if len(img) > APP_SLOT:
-        errors.append(f"image {len(img)} B exceeds the app slot")
+        soft.append(f"image {len(img)} B exceeds the app slot ({APP_SLOT} B) by {len(img) - APP_SLOT} B")
+    elif ble and APP_SLOT - len(img) < 30720:     # the Bluetooth build keeps 30 KB of the slot (the user's floor,
+        soft.append(f"image {len(img)} B leaves {APP_SLOT - len(img)} B of the app slot, < 30720 B")   # 2026-10-22)
+    elif ble and APP_SLOT - len(img) < 32768:     # (32 KB the margin wanted: "try")
+        notes.append(f"the app slot keeps {APP_SLOT - len(img)} B, under the 32 KB wanted (30 KB the floor)")
 
     def sym(name):
         mm = re.search(r"^([0-9a-f]+) .*\s" + name + r"$", syms, re.M)
@@ -278,17 +490,19 @@ def check(img, syms, dis, rt):
     pool_len = region["POOL"][1]
     bss = sym("_bss_end") - ram_org
     pool = sym("_pool_end") - sym("_pool_start")
-    notes.append(f"image {len(img)} B; RAM .data+.bss {bss} B of {ram_len}; pool {pool} B of {pool_len}")
+    notes.append(f"image {len(img)} B ({APP_SLOT - len(img)} B of the slot free); RAM .data+.bss {bss} B of {ram_len}; "
+                 f"pool {pool} B of {pool_len}" if ble else
+                 f"image {len(img)} B; RAM .data+.bss {bss} B of {ram_len}; pool {pool} B of {pool_len}")
     if region["RAM"][0] + ram_len != region["POOL"][0]:
         errors.append("app.ld: POOL does not start where RAM ends")
     if ram_len - bss < 4096:                      # keep >= 4 KiB of .bss spare (state the audio side touches)
-        errors.append(f"RAM headroom {ram_len - bss} B < 4096 B")
+        soft.append(f"RAM headroom {ram_len - bss} B < 4096 B")
     if pool_len - pool < 8192:                    # keep >= 8 KiB of the pool spare
-        errors.append(f"pool headroom {pool_len - pool} B < 8192 B")
+        soft.append(f"pool headroom {pool_len - pool} B < 8192 B")
     return errors, notes
 
 
-# Every hardware register access lives in hal/. In src/ and loader/ (comments stripped):
+# Every hardware register access lives in hal/. In src/, engines/src/ and loader/ (comments stripped):
 #  - no volatile pointer cast, except of a C object's address (`*(volatile T *)&x`: a read-once
 #    of a RAM flag shared with an ISR, e.g. usb.c ota_wire_send);
 #  - no literal in a register or reserved window (core SFRs 0x10000-0x13FFF, SFC 0x40000-0x43FFF,
@@ -318,7 +532,9 @@ def mmio_check():
             break
         regs |= more
     errors = []
-    for f in sorted([*(FW / "src").glob("*.[ch]"), *(FW / "loader").glob("*.c")]):
+    ble = [f for f in (FW / "src" / "ble").glob("*.[ch]") if f.name != "ble_rf_tables.c"]   # (the SDK's radio tables)
+    for f in sorted([*(FW / "src").glob("*.[ch]"), *(FW / "engines" / "src").glob("*.[ch]"), *ble,
+                     *(FW / "loader").glob("*.c")]):
         for no, ln in enumerate(strip(f.read_text()).splitlines(), 1):
             where = f"{f.relative_to(FW)}:{no}"
             for rx, what in ((MMIO_LIT, "register/window address"), (MMIO_CAST, "volatile pointer cast"),
@@ -346,6 +562,20 @@ def main():
         PRODUCT = "FM-1_9" + m[1] + m[2]
         VERSION = "v" + a.release.lower()      # e.g. v1.0, v1.1-rc1
         name = f"felucca-{a.release}.fwsc"
+    if not (FW / "engines" / "src" / "felucca_engine.h").exists():
+        raise SystemExit("firmware/engines is empty: the Felucca-Engines submodule "
+                         "(git submodule update --init, or clone with --recurse-submodules)")
+    ble = is_ble()
+    measure = ble and os.environ.get("BLE_MEASURE") == "1"
+    if ble:                         # a gated Bluetooth build is packaged under its own name
+        global CPU2
+        name = name.replace("felucca", "felucca-ble", 1)
+        os.environ.setdefault("FELUCCA_SMP_DROP", BLE_SMP_DROP)   # (tools/gen_samples.py: the flash room)
+        # one core (1.6.1's FELUCCA_CPU2=0, upstream's own variant): the second core's stacks and mailbox (5.7 KB of
+        # .data + .bss) and the BT stack's do not both fit the RAM with its 4 KB kept spare, and the two are untried
+        # together on the FM-1. 2ND CORE is an opt-in beta, OFF by default; the plain build keeps it
+        os.environ.setdefault("FELUCCA_CPU2", "0")
+        CPU2 = os.environ["FELUCCA_CPU2"] != "0"
     fm1pkg_make.SDK = a.sdk
     for rel, sha in SDK_SHA256.items():          # fail early without the SDK
         if hashlib.sha256(fm1pkg_make.sdk_file(rel)).hexdigest() != sha:
@@ -355,18 +585,44 @@ def main():
         gen, ldr = ex.submit(generate), ex.submit(build_loader)
         gen.result()
         ota = ldr.result()
-    img, syms, dis, rt = build_app()
-    errors, notes = check(img, syms, dis, rt)
+    img, syms, dis, rt, ref_dis = build_app()
+    errors, notes = check(img, syms, dis, rt, ble, measure)
+    if ble:                         # gates 2-3: every Bluetooth build stops on them
+        import check_update_path as cup
+        import check_ble_boot as cbb
+        base = cup.last_release()
+        ref_dis, plain_nm, ble_nm = ref_dis
+        ref = cup.selected(cup.functions(ref_dis))
+        e2a = cup.source_errors(base)
+        e2b = cup.compare(dis, cup.render(ref))
+        e2c, same2c, known2c = cup.compare_builds(plain_nm, ble_nm)
+        e3 = cbb.reachable_starts(dis)
+        errors += [f"gate 2a: {e}" for e in e2a] + [f"gate 2b: {e}" for e in e2b] + [f"gate 2c: {e}" for e in e2c]
+        errors += [f"gate 3: BT start-up reachable at boot: {', '.join(e3)}"] if e3 else []
+        notes.append("gate 1: the update loader = the pinned one (tools/ble_base.txt)")
+        if not e2a:
+            notes.append(f"gate 2a: the update path's sources = {base}'s")
+        if not e2b:
+            notes.append(f"gate 2b: the update path's machine code = the reference core's ({len(ref)} functions)")
+        if not e2c:
+            notes.append(f"gate 2c: the update path compiled for the Bluetooth build = the plain build's "
+                         f"({same2c} functions identical; differing as listed in check_update_path.py: "
+                         f"{', '.join(known2c) or 'none'})")
+        if not e3:
+            notes.append("gate 3: no BT start-up reachable at boot (only through ble_user_start)")
     hal_err = mmio_check()
     errors += hal_err
     if not hal_err:
-        notes.append("register access: hal/ only (src/, loader/ clean)")
+        notes.append("register access: hal/ only (src/, engines/src/, loader/ clean)")
     for n in notes:
         print("  ok   ", n)
     for e in errors:
         print("  FAIL ", e)
     if errors:
         raise SystemExit("build: checks failed")
+    if measure:
+        print("measured only (BLE_MEASURE=1): no package")
+        return 0
     pkg = fm1pkg_make.ufw(fm1pkg_make.flash_image(img, fm1pkg_make.KEY), ota, PRODUCT)
     (OUT / name).write_bytes(pkg)
     att = SRC / "assets" / "samples-cc0" / "ATTRIBUTION.txt"
@@ -386,6 +642,8 @@ def main():
                                                 for n, b in ((name, pkg), (app, bytes(img)))))
         for f in sorted((SRC / "LICENSES").glob("*.txt")):
             shutil.copy(f, rel / "LICENSES" / f.name)
+        if not (rel / "LICENSES" / "MIT-Felucca-Engines.txt").exists():     # ANALOG LOFI TRIO WHEEL NOISE (engines/)
+            raise SystemExit("release: LICENSES/MIT-Felucca-Engines.txt is missing")
         for doc in ("LICENSE", "LICENSING.md"):
             shutil.copy(SRC / doc, rel / doc)
         if att.exists():

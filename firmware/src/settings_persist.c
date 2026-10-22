@@ -10,6 +10,7 @@
  * [15][26]: MENU > DISPLAY > HOME (1.3; 0 = SCOPE, 1 TRACKS, 2 LEVELS (1.5), ui.c ui_home_view);
  * [15][24]: MENU's 1.2 flags SCOPE MIX, STEP PREVIEW ON, CHORD ENTRY ADD (bits 0-2, ui.c ui_prefs2; 0 = the defaults),
  *   1.5 HELP ON (bit 3), 1.5.5 SELECT PAGE (bit 4; 0 = BPM, as before), 1.5.5 SCREEN WAKE PANEL (bit 5; 0 = +MIDI);
+ *   1.6.1 2ND CORE ON (bit 7; 0 = OFF, one core, as before);
  * [15][10]: MENU > ANIM IDLE (1.2, Discussion #135, ui.c ui_idle: bit 0; 0 = off, ANIM as its bit in MENU's flags says);
  * [15][11]: PRESETS > LIST's category (1.2, Discussion #90, ui.c ui_lcat: 0 none = ALL / FAV as favorites.filter says);
  * [15][0..9], [12] (1.6, #244: CUSTOM, a palette of the user's: five RGB565 colours little endian, flags: ui.c ui_cpal); older
@@ -27,6 +28,9 @@ typedef struct {
 #define PERSIST_MAGIC 0x50455234u
 
 /* Normalize in place; 1 = current, 2 = migrated, 0 = invalid. */
+#if FELUCCA_BLE
+static uint8_t bt_mac_sum(const uint8_t *r);        /* bt_devs.c: the FM-1's own Bluetooth address' check */
+#endif
 static int settings_import(persist_t *p, int n)
 {
     int current = n == (int)sizeof *p && p->magic == PERSIST_MAGIC;
@@ -74,6 +78,11 @@ static int settings_import(persist_t *p, int n)
     settings_hold = (uint8_t)hold_from_stored(p->bold);
     settings_leds = (uint8_t)leds_from_stored(p->zoom);
 #ifdef FELUCCA_FAVORITES
+#if FELUCCA_BLE
+    if (favorites.factory[13][22] == 0xA5u && favorites.factory[13][23] == bt_mac_sum(&favorites.factory[13][16]))
+        memcpy(&p->favorites.factory[13][16], &favorites.factory[13][16], 8);   /* (this FM-1's Bluetooth address
+                                                        * stays its own: a backup from another unit, bt_devs.c bt_mac) */
+#endif
     memcpy(&favorites, &p->favorites, sizeof favorites);
     favorites.filter = favorites.filter == 1u;
 #if defined(FM4_NPRESETS) && !FELUCCA_FM4

@@ -38,7 +38,8 @@ typedef struct { const char *text; uint8_t kind; } menu_credit_t;
 static const menu_credit_t MENU_CREDITS[] = {
     {"H\xFCgelton Instruments", MC_TITLE},  /* Felucca's own: above; these are ours too */
     {"Leo Kuroshita", MC_TEXT},
-    {"CrispyZebra (PHASE waveforms), the DRUM voices, the Sample Pack: GPL-3.0", MC_TEXT},
+    {"The PHASE and DRUM engines: GPL-3.0", MC_TEXT},
+    {"The Sample Pack: CC0", MC_TEXT},
     {"Fukiai icon font: MIT", MC_TEXT},
     {"https://github.com/hugelton", MC_URL},
     {"", MC_TEXT},
@@ -149,13 +150,23 @@ static int32_t menu_scroll_max(void)
 
 static void menu_dots(void);
 /* the menu's header (0..24): its icon and title, the REC mark, the way back (the tabs: HOME CLOSE before the dots) */
+#if FELUCCA_BLE
+#define BT_MENU 4u                                     /* ui.menu: the Bluetooth page (bt_page.c, included after the UI) */
+static void bt_page_open(void);
+static void bt_page_close(void);
+static void bt_page_input(uint32_t oct);
+static void bt_page_draw(void);
+#define MENU_SUB_TITLE (ui.menu == BT_MENU ? "BLUETOOTH" : ui.menu == 3 ? "INFO" : ui.menu == 2 ? "ABOUT / CREDITS" : "MENU")
+#else
+#define MENU_SUB_TITLE (ui.menu == 3 ? "INFO" : ui.menu == 2 ? "ABOUT / CREDITS" : "MENU")
+#endif
 static void menu_head(void)
 {
     cv_begin(240, H_HEAD, T_BG);
     GFX_HOOK_ALIGN(0, HEAD_MY + AF_M_CAP_Y, 0, HEAD_MY + AF_M_CAP_Y + AF_M_CAP_H, AL_V, "header icon on its title's line");
     cv_icon_mid(8, H_HEAD / 2, 16, ui.menu >= 2 ? ICON_X_INFO : ICON_X_COG, T_THEME, T_BG);   /* (as draw_head's) */
     GFX_HOOK_ALIGN(0, 0, 0, H_HEAD, AL_V, "header text on its middle");
-    cv_text(30, HEAD_MY, &AF_M, ui.menu == 3 ? "INFO" : ui.menu == 2 ? "ABOUT / CREDITS" : "MENU", T_TEXT);
+    cv_text(30, HEAD_MY, &AF_M, MENU_SUB_TITLE, T_TEXT);
     if (ui.menu >= 2) {                               /* the way back at the right, the REC mark before it (then */
         const char *w = song.rec ? 0 : "BACK";        /* the keycap goes without its word: no room for both) */
         int32_t x = 232 - kh_w(KC_OCTDN, w);
@@ -329,7 +340,7 @@ static void menu_row(uint32_t k, uint32_t row)
                   vy, &AF_M, row == MI_TUNE ? v : b, val, bg);
         return;
     }
-    if (menu_n(row) == 2u && (str_eq(v, "ON") || str_eq(v, "OFF"))) {
+    if (menu_n(row) == 2u && (str_eq(v, "ON") || str_eq(v, "OFF")) && !MI_TEXT(row)) {
         menu_switch(MR_VR, y, h, str_eq(v, "ON"), sel);
         return;
     }
@@ -411,6 +422,12 @@ static void draw_menu(void)
                                        {{KC_ALGO, "TAB"}, {KC_PRESETS, "ROW"}, {KC_OCTUP, "CLEAR"}}};
     uint32_t pass, k, first, n, split, sig;
     int32_t pos0 = mt.pos;
+#if FELUCCA_BLE
+    if (ui.menu == BT_MENU) {                          /* the Bluetooth page: its own signature and bands */
+        bt_page_draw();
+        return;
+    }
+#endif
     if (ui.menu == 1)
         mt_follow();
     sig = ui.menu * 7u + ui.menu_sel * 131u + palette_cur() * 1009u + settings.lowcut * 7919u + settings_hold * 3511u +
@@ -495,6 +512,10 @@ static void enc_drop(void)                             /* knob turns nobody take
 
 static void menu_close(void)
 {
+#if FELUCCA_BLE
+    if (ui.menu == BT_MENU)
+        bt_page_close();                               /* (HOME from the Bluetooth page: its scan pause ends) */
+#endif
     settings_save();                                   /* palette / panel table, if changed */
     ui.menu = 0;
     ui.force = 1;
@@ -523,6 +544,12 @@ static void menu_input(uint32_t oct)                  /* oct: ui_input.c oct_tap
 {
     int32_t s;
     uint32_t k, up = (oct >> 1) & 1u, dn = oct & 1u;
+#if FELUCCA_BLE
+    if (ui.menu == BT_MENU) {
+        bt_page_input(oct);
+        return;
+    }
+#endif
     if (ui.menu >= 2) {                                /* ABOUT: PRESETS scrolls (bounded); INFO, ABOUT: OCT- back to
                                                         * the tabs */
         if (dn)
@@ -552,6 +579,10 @@ static void menu_input(uint32_t oct)                  /* oct: ui_input.c oct_tap
             panel_setup();
             scrn.idle = fm1_ms;                         /* (SCREEN OFF: its own loop had the input) */
             ui.force = 1;
+#if FELUCCA_BLE
+        } else if (ui.menu_sel == MI_BT) {
+            bt_page_open();
+#endif
         } else if (ui.menu_sel == MI_INFO) {
             ui.menu = 3;
             info.t = fm1_ms - INFO_CPU_MS;              /* (the CPU load read at once) */

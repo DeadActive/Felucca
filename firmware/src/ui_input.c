@@ -120,6 +120,9 @@ static void sel_play(uint32_t m, int32_t s)
                                                                                   * other) */
         fm1_irq_off();                                 /* (the out ring is the audio ISR's: it must not run now) */
         midi_out_event(0x0Bu | (0xB0u | trk_midi_ch(song.sel)) << 8 | 1u << 16 | (uint32_t)t->mw << 24);
+#if FELUCCA_BLE
+        bt_midi_out_isr(0x0Bu | (0xB0u | trk_midi_ch(song.sel)) << 8 | 1u << 16 | (uint32_t)t->mw << 24);
+#endif
         fm1_irq_on();
         fmt_int(b, t->mw);
         ui_say("MODW ", b);
@@ -137,7 +140,11 @@ static uint32_t oct_leds(void)
     if (layer_set_open())                               /* a SET layer: OCT- puts back (UNDO), OCT+ nothing */
         return 1u;
     if (ui.menu && !ui.confirm)
-        return ui.menu >= 2u ? 1u :                    /* (INFO, ABOUT: OCT- back, lit) */
+        return
+#if FELUCCA_BLE
+               ui.menu == BT_MENU ? 1u | OCT_BREATH :  /* (the Bluetooth page: OCT- back, OCT+ acts on the row) */
+#endif
+               ui.menu >= 2u ? 1u :                    /* (INFO, ABOUT: OCT- back, lit) */
                ui.menu_sel == MI_LCLEAR ? (ml_count() ? OCT_BREATH : 0u) :   /* LEARN CLEAR: while CCs are learned */
                ui.menu_sel >= MI_VALUES ? OCT_BREATH :  /* CALIBRATION / INFO / ABOUT: OCT+ opens */
                (menu_step(ui.menu_sel, -1) != menu_get(ui.menu_sel) ? OCT_BREATH_DN : 0u) |   /* a value: each */

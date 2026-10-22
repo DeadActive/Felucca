@@ -200,6 +200,15 @@ static void con_status(void)
     con_kv("audio_max_us", (int32_t)felucca_dbg.max_us);
     con_kv("audio_late", (int32_t)felucca_dbg.late);
     con_kv("voices_shed", (int32_t)shed_count);
+#if FELUCCA_CPU2
+    con_kv("cpu2_set", (ui_prefs2 & (PREF_CPU2_ON >> 16)) != 0u);   /* MENU > 2ND CORE: 1 ON (from power-on), 0 OFF */
+    con_kv("cpu2", fm1_c1_on);                          /* the second core renders parts (hal/fm1_cpu1.h) */
+    con_kv("cpu2_gave_up", fm1_c1_gave_up);             /* 1: it misread a job, 2: one timed out (then one core) */
+    con_kv("cpu2_bad", (int32_t)fm1_c1_mb.bad);
+    con_kv("cpu2_blocks", (int32_t)c1_blocks);          /* blocks it took parts of (fx.c mix_block) */
+    con_kv("cpu2_wait_max_us", (int32_t)(fm1_c1_wait_max / 24u));
+    con_kv("cpu2_stack", (int32_t)fm1_cpu1_stack_used());
+#endif
     con_kv("voices_given_up", (int32_t)voice_kills);
     con_kv("track", (int32_t)song.sel + 1);
     con_kv("batt_raw", song.batt_raw);
@@ -341,10 +350,35 @@ static void con_params(void)
     }
 }
 
+#if FELUCCA_BLE
+static void con_fml(void)                              /* FM-Link: what the engine knows (bt_fml.c, fmlink.c) */
+{
+    fml_t f;
+    fm1_irq_off();
+    f = bt_fml;
+    fm1_irq_on();
+    con_kv("fml role (1 leader, 2 follower)", f.role);
+    con_kv("fml peer", fml_linked(&f, fm1_ticks()));
+    con_kv("fml offset_ok", f.off_ok);
+    con_kv("fml offset_us", f.off / (int32_t)(FML_MS / 1000u));
+    con_kv("fml samples_up", (int32_t)f.up_n);
+    con_kv("fml samples_down", (int32_t)f.down_n);
+    con_kv("fml leader_playing", f.l_playing);
+    con_kv("fml leader_bpm", f.l_bpm);
+    con_kv("fml playing", f.playing);
+    con_kv("fml beats_x100", (int32_t)((uint64_t)f.beats * 100u >> 16));
+    con_kv("fml joined_beat", (int32_t)(f.joined_beats >> 16));
+}
+#endif
 static void con_exec(const char *p)
 {
     if (con_word(&p, "help") || con_word(&p, "?"))
+#if FELUCCA_BLE
+        con_puts("status  dbg  inp  crash  params  memr ADDR [LEN]  flr OFF [LEN]  uboot yes\r\n"
+                 "ble [start | scan | list | connect N | stop]  fml\r\n");
+#else
         con_puts("status  dbg  inp  crash  params  memr ADDR [LEN]  flr OFF [LEN]  uboot yes\r\n");
+#endif
     else if (con_word(&p, "status"))
         con_status();
     else if (con_word(&p, "dbg"))
@@ -360,6 +394,12 @@ static void con_exec(const char *p)
 #if FELUCCA_FLASH
     else if (con_word(&p, "flr"))
         con_flr(p);
+#endif
+#if FELUCCA_BLE
+    else if (con_word(&p, "ble"))
+        ble_console(p);                                /* ble/ble_central.c: start, scan, list, connect N, stop, status */
+    else if (con_word(&p, "fml"))
+        con_fml();                                     /* FM-Link (bt_fml.c): the role, the peer, the offset, the leader */
 #endif
     else if (con_word(&p, "uboot")) {
         if (con_word(&p, "yes")) {

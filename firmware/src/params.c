@@ -46,7 +46,12 @@ static const char *const N_GLMODE[] = {"RATE", "TIME"};
 static const char *const N_PRIO[] = {"LAST", "LOW", "HIGH"};
 static const char *const N_ALLOC[] = {"ROT", "REUSE"};
 static const char *const N_ORDER[] = {"NOTE", "PLAY"};
+#if FELUCCA_BLE
+static const char *const N_CLOCK[] = {"INT", "USB", "TRS", "BLE", "LINK"};   /* (3: the Bluetooth MIDI device, bt_midi.c;
+                                                                              * 4: FM-Link's follower, bt_fml.c) */
+#else
 static const char *const N_CLOCK[] = {"INT", "USB", "TRS"};
+#endif
 static const char *const N_MIDI_INPUT[] = {"USB", "TRS"};
 /* MIDI IN (seq.c midi_base): 1..4 -> parts, 5..16 ignored / all -> selected / (1.2, append-only) 5..8, 9..12, 13..16 -> parts
  * / (1.5.5, #202) TRACK: each track its own channel (song.mch, MENU > MIDI > T1..T4 CHANNEL) */

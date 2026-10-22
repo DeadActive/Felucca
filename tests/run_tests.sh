@@ -13,6 +13,8 @@
 #                   (tests/target_budget.txt, +10 %; exact, static).
 #   voices          the budget of 8, steal fades, MONO / LEGATO / UNISON keep their note, the VOICE cap,
 #                   no hanging notes on any MIDI / key routing.
+# FELUCCA-ENGINES (engines/tests, MIT): ANALOG LOFI TRIO WHEEL NOISE on their own host against their golden renders,
+#                   once with their own tables and once with build/gen's (the two generators agree).
 # ENGINE MEMORY (tests/union_test.c, 1.5): engine switches on a part (every pair and A -> B -> A of the engines that
 #                   share the part's state region, with others), hashed against 1.4's (tests/union_golden.txt).
 # UI renders (tests/ui_render.c): every screen in every palette from the real drawing code: the layout lint (no text
@@ -165,7 +167,7 @@
 #                   Felucca's targets, the controls' directions, no clipping, DC, retriggers, the hat choke, the
 #                   kick on a small speaker; the DRUM engine (src/eng_drum.c): its key map, the 8 lanes together,
 #                   one hit per lane, the choke between lanes; the cost per voice; demos in build/drum_demo/.
-# NOISE (tests/noise_test.c): the engine (src/eng_noise.c): COLR's slope (white, pink, brown), the filter and the
+# NOISE (tests/noise_test.c): the engine (engines/src/eng_noise.c): COLR's slope (white, pink, brown), the filter and the
 #                   register clock following the key, META periodic at the key, no DC, no clipping at the
 #                   corners, a note from silence the same twice, the cost per voice; demos in build/noise_demo/.
 # DIGITAL -> FM6 (tests/fm4_test.c, built with FELUCCA_FM4=1): the retired four-operator engine against its conversion
@@ -198,6 +200,12 @@ mkdir -p "$OUT"
 CC="${CC:-cc} -O1 -Wall -Wno-unused-function"
 fail=0
 run() { echo "== $1"; shift; "$@" || fail=1; }
+
+if grep -q "^ble_service:" build/felucca.dis 2>/dev/null; then    # (BLE MIDI: 2026 DEADACTIVE)
+    echo "build/ holds a Bluetooth build (FELUCCA_BLE=1): the budgets and the package tests are for the plain build."
+    echo "Run ./build.sh first."
+    exit 1
+fi
 
 $CC -o "$OUT/storage_test" tests/storage_test.c
 run "flash storage (A/B, torn writes)" "$OUT/storage_test"
@@ -305,15 +313,17 @@ if [ -f build/gen/felucca_tables.h ]; then
     run "settings: PER1..PER4 migration, palette ids and preference preservation" "$OUT/settings_test"
     $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/ui_test" tests/ui_test.c -lm
     run "UI: sounds keep steps, undo, recording, MIDI overflow, pending saves, panel recovery, drum grid, song chain, GREY gray, MONO neutral" "$OUT/ui_test"
+    $CC -w -DFELUCCA_CPU2=0 -Ibuild/gen -Ifirmware/src -o "$OUT/ui_test_c1" tests/ui_test.c -lm
+    run "UI, a FELUCCA_CPU2=0 build: MENU > SYSTEM without 2ND CORE, the rest as the default build" "$OUT/ui_test_c1"
     $CC -DPREEMPT -g -fwrapv -fsanitize=address,undefined -fno-sanitize=shift -fno-sanitize-recover=all -w \
         -Ibuild/gen -Ifirmware/src -o "$OUT/drumfuzz" tests/drumfuzz_test.c -lm
     run "DRUM grid stress (#211, ASan / UBSan): random grid editing, locks, undo, engines over a playing synth, the ISR anywhere" \
         "$OUT/drumfuzz" 1 6 1500
     run "DRUM grid stress (#211) with a SONG playing" "$OUT/drumfuzz" 101 3 1500 song
-    FV=$(sed -n 's/^#define FELUCCA_VERSION "\([^"]*\)".*/\1/p' firmware/src/felucca.c)   # (the splash, ABOUT: the real version)
+    FV=$(sed -n 's/^#define FELUCCA_VERSION "\([^"]*\)".*/\1/p' firmware/src/felucca.c | head -n 1)   # (the splash, ABOUT: the real version)
     $CC -O1 -w "-DFELUCCA_VERSION=\"$FV\"" -Ibuild/gen -Ifirmware/src -Itests -o "$OUT/ui_render" tests/ui_render.c -lm
     mkdir -p build/ui_new/ppm build/ui_slot
-    run "UI renders: layout lint (every screen and palette, every page, engine and column value), GREY gray, MONO neutral, alignment by ink (1 px fails), draw cost" \
+    run "UI renders: layout lint (every screen and palette, every page, engine and column value), GREY gray, MONO neutral, alignment by ink (1 px fails), draw cost, LARGE one value size per knob (#251)" \
         "$OUT/ui_render" build/ui_new build/ui_slot
     if python3 -c "import PIL" 2>/dev/null; then python3 tests/ui_render.py build/ui_new build/ui_slot; fi
     $CC -w -DFELUCCA_FM4=1 -Ibuild/gen -Ifirmware/src -o "$OUT/ui_test_fm4" tests/ui_test.c -lm
@@ -335,6 +345,8 @@ if [ -f build/gen/felucca_tables.h ]; then
     $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/editor_test" tests/editor_test.c -lm
     run "editor: real C protocol, malformed transfers, queue recovery, MENU settings (writes build/host/menu.json)" \
         env MENU_JSON="$OUT/menu.json" "$OUT/editor_test"
+    $CC -w -DFELUCCA_CPU2=0 -Ibuild/gen -Ifirmware/src -o "$OUT/editor_test_c1" tests/editor_test.c -lm
+    run "editor, a FELUCCA_CPU2=0 build: MENU settings without 2ND CORE (ids 0..31)" "$OUT/editor_test_c1"
     $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/robust_test" tests/robust_test.c -lm
     run "robustness: crafted sample slots, engine numbers, retained old projects, preset patterns, malformed requests" \
         "$OUT/robust_test"
@@ -369,7 +381,30 @@ if [ -f build/gen/felucca_tables.h ]; then
     mkdir -p build/reverb_demo
     run "REVERB TYPE: ROOM / SPRING bit-identical, SPRING and HALL decay / stability / level, HALL silence / stereo / ringing, model changes, cost, demos" "$OUT/reverb_test" build/fx_demo build/reverb_demo
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/regress" tests/regress.c -lm
-    run "regression: golden renders, health, voices, CPU budget" "$OUT/regress" tests/golden.txt tests/cpu_baseline.txt
+    run "regression: golden renders, health, voices, CPU budget (2ND CORE OFF: one core)" "$OUT/regress" tests/golden.txt tests/cpu_baseline.txt
+    $CC -O2 -w -DFELUCCA_CPU2=0 -Ibuild/gen -Ifirmware/src -o "$OUT/regress_cpu2_0" tests/regress.c -lm
+    run "regression, a FELUCCA_CPU2=0 build (none of the second core): the same golden renders and CPU budget" \
+        "$OUT/regress_cpu2_0" tests/golden.txt tests/cpu_baseline.txt
+    # the second core (2ND CORE ON: fx.c mix_block, tests/c1_host.h): a thread renders the parts handed to it, bit for
+    # bit
+    $CC -O2 -w -Ibuild/gen -Ifirmware/src -DC1_HOST -pthread -o "$OUT/regress_c1" tests/regress.c -lm
+    run "second core: the golden renders with a thread taking every split of the parts in turn" \
+        "$OUT/regress_c1" tests/golden.txt tests/cpu_baseline.txt
+    $CC -O2 -w -Ibuild/gen -Ifirmware/src -pthread -o "$OUT/dualcore_test" tests/dualcore_test.c -lm
+    run "second core: 4 parts of every preset, mixes: bit for bit on one core and on two, every split" \
+        "$OUT/dualcore_test"
+    if [ -n "$TSAN" ]; then                     # TSAN=1: the same under ThreadSanitizer (~6 min): shared state
+        TSAN_CC="cc -O1 -g -w -Ibuild/gen -Ifirmware/src -fsanitize=thread -pthread"
+        $TSAN_CC -o "$OUT/dualcore_tsan" tests/dualcore_test.c -lm
+        run "second core under ThreadSanitizer: 4 parts of every preset, mixes" \
+            env TSAN_OPTIONS=halt_on_error=1 "$OUT/dualcore_tsan"
+    fi
+    # Felucca-Engines (firmware/engines, MIT): its own test, then its standalone host built with Felucca's generated
+    # tables against its golden renders (the same hashes: build/gen/felucca_tables.h has the engines' tables)
+    run "Felucca-Engines: its own tables, host and golden renders" sh firmware/engines/tests/run.sh
+    $CC -O2 -w '-DFE_TABLES_H="felucca_tables.h"' -Ibuild/gen -o "$OUT/fe_host" firmware/engines/tests/fe_host.c
+    "$OUT/fe_host" > "$OUT/fe_renders.txt" || fail=1
+    run "Felucca-Engines with Felucca's tables: the engines' golden renders" diff -u firmware/engines/tests/golden.txt "$OUT/fe_renders.txt"
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/union_test" tests/union_test.c -lm
     run "engine memory (1.5): every switch between the engines with per-part state sounds as in 1.4 (720 sequences)" \
         "$OUT/union_test" tests/union_golden.txt
@@ -464,6 +499,41 @@ run "regression: target cost of the render loops (pi32v2 disassembly)" python3 t
 
 run "installer CLI (fm1_install.py) against a simulated FM-1" python3 tests/install_test.py
 
+# the Bluetooth build (FELUCCA_BLE=1, BLE MIDI: 2026 DEADACTIVE)
+run "SAMPLE sets left out of a build (gen_samples.py FELUCCA_SMP_DROP)" python3 tests/smp_drop_test.py "$OUT/smp_drop"
+for t in ble_midi ble_scan ble_central ble_vm ble_gatt; do $CC -o "$OUT/${t}_test" "tests/ble/${t}_test.c"; done
+$CC -Wno-deprecated-declarations -Ifirmware/src/ble -o "$OUT/ble_os_test" tests/ble/ble_os_test.c
+run "BLE-MIDI parser and packer" "$OUT/ble_midi_test"
+run "BLE scan table" "$OUT/ble_scan_test"
+run "BLE central state machine, reconnecting, UUID match, monitor text" "$OUT/ble_central_test"
+run "BLE stored RF calibration (config store)" "$OUT/ble_vm_test"
+run "BLE device role: the GATT table (BLE-MIDI service, characteristic, CCCD), advertising data, scan response" "$OUT/ble_gatt_test"
+$CC -o "$OUT/fmlink_test" tests/fmlink_test.c
+run "FM-Link: two FM-1s over a simulated Bluetooth link (bursts, delays, loss, crystals apart): start, 3 min, BPM, join, STOP" "$OUT/fmlink_test"
+run "BLE OS layer (host back end)" "$OUT/ble_os_test"
+run "BLE fault path: records and reboots, never waits on interrupts" python3 tests/ble/check_ble_fatal.py
+run "gate 2 tool self-test (update path: machine code, sources)" python3 tools/check_update_path.py --selftest
+run "gate 2a: the update path's sources = the base upstream release's" python3 tools/check_update_path.py --sources
+run "gate 3 tool self-test (BT start-up reachable at boot)" python3 tools/check_ble_boot.py --selftest
+# the core's side, built as the Bluetooth build is (FELUCCA_BLE=1) on the UI harness, the BLE unit's entry points stubs
+if [ -f build/gen/ui_fonts.h ]; then
+    $CC -w -DFELUCCA_BLE=1 -DBT_TEST_PAGE=1 -Ibuild/gen -Ifirmware/src -Itests -o "$OUT/bt_midi_test" tests/bt_midi_test.c -lm
+    run "Bluetooth MIDI: the settings bytes, MIDI mode in (source 3) and out, CLK BLE, the release on a lost link" "$OUT/bt_midi_test"
+    $CC -w -DFELUCCA_BLE=1 -Ibuild/gen -Ifirmware/src -Itests -o "$OUT/bt_page_test" tests/bt_page_test.c -lm
+    run "Bluetooth page: the row in MENU > SYSTEM, the cursor, ON / OFF, MODE, DEVICE, SCAN, a pick, the state line" "$OUT/bt_page_test"
+    $CC -w -DFELUCCA_BLE=1 -Ibuild/gen -Ifirmware/src -Itests -o "$OUT/smc_test" tests/smc_test.c -lm
+    run "SMC-Mixer DAW layout: faders with pickup, knobs, MUTE SOLO REC SELECT, the transport, the LEDs, the mixer gone" "$OUT/smc_test"
+    $CC -w -DFELUCCA_BLE=1 -Ibuild/gen -Ifirmware/src -Itests -o "$OUT/bt_devs_test" tests/bt_devs_test.c -lm
+    run "saved Bluetooth devices: the list in the favourites' spare bytes, pick order, full list, each link's device, the 30 s grace" "$OUT/bt_devs_test"
+    $CC -w -DFELUCCA_BLE=1 -Ibuild/gen -Ifirmware/src -Itests -o "$OUT/bt_fml_test" tests/bt_fml_test.c -lm
+    run "FM-Link's glue through the sequencer: CLK INT leads, LINK follows; PLAY, STOP, BPM, its own PLAY held, no link" "$OUT/bt_fml_test"
+    $CC -w -DFELUCCA_BLE=1 -Ibuild/gen -Ifirmware/src -Itests -o "$OUT/bt_page_render" tests/bt_page_render.c -lm
+    run "Bluetooth page: every state in every palette, FLAT and LINE, through the layout lint" "$OUT/bt_page_render" build/ui_bt
+    if python3 -c "import PIL" 2>/dev/null; then python3 tests/ui_render.py build/ui_bt >/dev/null; fi
+    $CC -w -Ibuild/gen -Ifirmware/src -Itests -o "$OUT/clk_ble_plain_test" tests/clk_ble_plain_test.c -lm
+    run "the plain build opens a project saved with CLK BLE or LINK (as TRS)" "$OUT/clk_ble_plain_test"
+fi
+
 if command -v node >/dev/null 2>&1; then
     run "web pages: editor protocol + samples, package builder, update protocol" node web/test_web.mjs
     run "web backup: capture, validation before writes, restore order" node web/test_backup.mjs
@@ -483,4 +553,8 @@ else
         node web/emu/emu_test.mjs build/emu/felucca.wasm "$OUT/emu_native.f32"
 fi
 
+# last: it rebuilds build/ twice (the plain build, the same bytes when it passes). GATE5=1 sh tests/run_tests.sh
+if [ "${GATE5:-0}" = 1 ]; then
+    run "gate 5: the plain build byte-identical without the Bluetooth files" sh tools/check_default_build.sh
+fi
 [ $fail -eq 0 ] && echo "ALL HOST TESTS PASSED" || { echo "HOST TESTS FAILED"; exit 1; }
