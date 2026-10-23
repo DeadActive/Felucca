@@ -106,7 +106,7 @@ console's `ble` word calls `ble_console(args)`.
 | base | 1.6.1 | a Felucca fork with its own releases (its gates pin drum-v0.23.2) | Felucca 1.1.5 + 1.6.1 merges | Felucca ~1.0, hand-ported |
 | settings | favorites table rows | packed bits; the devices in a new object (planned: 0x9F000 / 0xFE000) | favorites table rows | multi-part settings object |
 | plain image / free | 511 KB / 70 KB | 328 KB / 253 KB | 581 KB / 0.2 KB | 567 KB / 14 KB |
-| Bluetooth image / free | 551 KB / 30.7 KB | 478 KB / 103.5 KB | (in progress) | 580 KB / 1.4 KB |
-| Bluetooth build cuts | PIANO, FLUTE, SAX; one core | none (FX chorus buffer to `.bss`) | PIANO, FLUTE, SAX, BREAK, FUNK, pixel fonts, 48 kHz USB audio; one core; delay line -25 %; smaller pool margin | BASS, VIBES, HORNS, FLUTE; boot logo as text; smaller pool margin; track 3's default LOFI KEYS |
+| Bluetooth image / free | 551 KB / 30.7 KB | 478 KB / 103.5 KB | 578 KB / 3.4 KB | 580 KB / 1.4 KB |
+| Bluetooth build cuts | PIANO, FLUTE, SAX; one core | none (FX chorus buffer to `.bss`) | PIANO, FLUTE, SAX, BREAK, FUNK, pixel fonts, 48 kHz USB audio; one core; delay line -25 % (1.11 s) | BASS, VIBES, HORNS, FLUTE; boot logo as text; smaller pool margin; track 3's default LOFI KEYS |
 | branch | DeadActive/Felucca `ble-kit` | DeadActive/hortator `ble` | DeadActive/skiff `ble` | DeadActive/sloop-fm1 `ble` |
 | RF trim at risk from | autosave 0xE5000 | nothing | pattern bank 0xE7000 | USR4 0xE7000 |
