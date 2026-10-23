@@ -22,9 +22,11 @@ what is copied unchanged, what each firmware must adapt, and what stops a port.
    (`tools/check_default_build.sh`): the plain build is byte-identical with the Bluetooth files removed. Build the
    plain firmware before the port and `cmp` its `.bin` after.
 2. **Measure first.** Build the firmware as it is and record: image size and slot free, `.data + .bss`, pool, RAM code.
-   The Bluetooth build costs about **141 KB of flash** (stack 128.7 KB, core side 5.8 KB, device role 6.3 KB),
-   **12.3 KB of `.data + .bss`** and **23.7 KB of pool** (the heap, `BLE_HEAP_BYTES` 23,552 B, and four task slots).
-   The build keeps 4 KB of `.data + .bss` and 8 KB of pool spare.
+   The Bluetooth build costs about **141-148 KB of flash** (stack 128.7 KB, core side 6-12 KB with the page, device
+   role 6.3 KB; Skiff measured 148 KB), **12-14 KB of `.data + .bss`** and **about 31 KB of pool** (the heap,
+   `BLE_HEAP_BYTES` 23,552 B, plus the task slots, 7,440 B). Budget with the high figures. The build keeps 4 KB of
+   `.data + .bss` and 8 KB of pool spare; a firmware where all allocation is static may lower its Bluetooth build's
+   floors (a named, documented value in `build.py`, the user's decision: SLOOP keeps 512 B of pool).
 3. **What the Bluetooth build leaves out is the user's decision**, and only in that build: built-in sample sets
    (`BLE_SMP_DROP` in `build.py`, `gen_samples.py`), the second core (`FELUCCA_CPU2=0`, about 6 KB of RAM), optional
    UI assets. Bring the measured numbers and a recommendation; never cut an engine or a feature without asking.
@@ -104,5 +106,7 @@ console's `ble` word calls `ble_console(args)`.
 | base | 1.6.1 | a Felucca fork with its own releases (its gates pin drum-v0.23.2) | Felucca 1.1.5 + 1.6.1 merges | Felucca ~1.0, hand-ported |
 | settings | favorites table rows | packed bits; the devices in a new object (planned: 0x9F000 / 0xFE000) | favorites table rows | multi-part settings object |
 | plain image / free | 511 KB / 70 KB | 328 KB / 253 KB | 581 KB / 0.2 KB | 567 KB / 14 KB |
-| Bluetooth build cuts | PIANO, FLUTE, SAX; one core | none | PIANO, FLUTE, SAX, BREAK, pixel fonts; one core | BASS, VIBES, HORNS, FLUTE |
+| Bluetooth image / free | 551 KB / 30.7 KB | 478 KB / 103.5 KB | (in progress) | 580 KB / 1.4 KB |
+| Bluetooth build cuts | PIANO, FLUTE, SAX; one core | none (FX chorus buffer to `.bss`) | PIANO, FLUTE, SAX, BREAK, FUNK, pixel fonts, 48 kHz USB audio; one core; delay line -25 %; smaller pool margin | BASS, VIBES, HORNS, FLUTE; boot logo as text; smaller pool margin; track 3's default LOFI KEYS |
+| branch | DeadActive/Felucca `ble-kit` | DeadActive/hortator `ble` | DeadActive/skiff `ble` | DeadActive/sloop-fm1 `ble` |
 | RF trim at risk from | autosave 0xE5000 | nothing | pattern bank 0xE7000 | USR4 0xE7000 |
