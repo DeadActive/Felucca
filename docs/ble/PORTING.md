@@ -101,6 +101,18 @@ console's `ble` word calls `ble_console(args)`.
 5. Full suite, the plain `cmp`, the Bluetooth build with every gate. Commit on `ble`, push, build the package
    (`*.fwsc`) for a device test with `tools/fm1_serial_log.py` (`ble`, `status` every 2 s) and `docs/ble/DEVICE_STEPS.md`.
 
+## 6. Known differences between firmwares (2026-10-23)
+
+| | Felucca 1.6.1 | Hortator 0.23 | Skiff 1.4 | SLOOP 2.8 |
+| --- | --- | --- | --- | --- |
+| base | 1.6.1 | a Felucca fork with its own releases (its gates pin drum-v0.23.2) | Felucca 1.1.5 + 1.6.1 merges | Felucca ~1.0, hand-ported |
+| settings | favorites table rows | packed bits; the devices in a new object (planned: 0x9F000 / 0xFE000) | favorites table rows | multi-part settings object |
+| plain image / free | 511 KB / 70 KB | 328 KB / 253 KB | 581 KB / 0.2 KB | 567 KB / 14 KB |
+| Bluetooth image / free | 551 KB / 30.7 KB | 478 KB / 103.5 KB | 576 KB / 5.5 KB | 580 KB / 1.4 KB |
+| Bluetooth build cuts | PIANO, FLUTE, SAX; one core | none (FX chorus buffer to `.bss`) | the built-in samples move to a pack in user slots USR2/USR3 (installed from the site; one user slot left); the console's `ble` / `fml` and their diagnostics (`BLE_CONSOLE=0`), the BLE unit at `-Oz`, no top-bar icon; pixel fonts, 48 kHz USB audio; one core; delay line -25 % (1.11 s) | BASS, VIBES, HORNS, FLUTE; boot logo as text; smaller pool margin; track 3's default LOFI KEYS |
+| branch | DeadActive/Felucca `ble-kit` | DeadActive/hortator `ble` | DeadActive/skiff `ble` | DeadActive/sloop-fm1 `ble` |
+| RF trim at risk from | autosave 0xE5000 | nothing | pattern bank 0xE7000 | USR4 0xE7000 |
+
 ## 7. Fit tools (code before features)
 
 - **`BLE_CONSOLE`** (layer 1: `ble/ble_core.h`, `fm1_ble_hal.h`, `ble/ble_os.h`; default 1). `-DBLE_CONSOLE=0` (in
@@ -116,15 +128,3 @@ console's `ble` word calls `ble_console(args)`.
 - **The BLE unit for size**: `build.py` compiles `ble.c` with `-Oz` instead of `-Os` (Skiff: 552 B). Its delays are
   calibrated against TIMER4 at start-up (`ble_port.c`), so the counted loops keep their length.
 - **The top-bar icon** (layer 4) is optional; the page's state line says the same (Skiff: about 240 B).
-
-## 6. Known differences between firmwares (2026-10-23)
-
-| | Felucca 1.6.1 | Hortator 0.23 | Skiff 1.4 | SLOOP 2.8 |
-| --- | --- | --- | --- | --- |
-| base | 1.6.1 | a Felucca fork with its own releases (its gates pin drum-v0.23.2) | Felucca 1.1.5 + 1.6.1 merges | Felucca ~1.0, hand-ported |
-| settings | favorites table rows | packed bits; the devices in a new object (planned: 0x9F000 / 0xFE000) | favorites table rows | multi-part settings object |
-| plain image / free | 511 KB / 70 KB | 328 KB / 253 KB | 581 KB / 0.2 KB | 567 KB / 14 KB |
-| Bluetooth image / free | 551 KB / 30.7 KB | 478 KB / 103.5 KB | 576 KB / 5.5 KB | 580 KB / 1.4 KB |
-| Bluetooth build cuts | PIANO, FLUTE, SAX; one core | none (FX chorus buffer to `.bss`) | the built-in samples move to a pack in user slots USR2/USR3 (installed from the site; one user slot left); the console's `ble` / `fml` and their diagnostics (`BLE_CONSOLE=0`), the BLE unit at `-Oz`, no top-bar icon; pixel fonts, 48 kHz USB audio; one core; delay line -25 % (1.11 s) | BASS, VIBES, HORNS, FLUTE; boot logo as text; smaller pool margin; track 3's default LOFI KEYS |
-| branch | DeadActive/Felucca `ble-kit` | DeadActive/hortator `ble` | DeadActive/skiff `ble` | DeadActive/sloop-fm1 `ble` |
-| RF trim at risk from | autosave 0xE5000 | nothing | pattern bank 0xE7000 | USR4 0xE7000 |
