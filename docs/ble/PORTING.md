@@ -30,6 +30,8 @@ what is copied unchanged, what each firmware must adapt, and what stops a port.
 3. **What the Bluetooth build leaves out is the user's decision**, and only in that build: built-in sample sets
    (`BLE_SMP_DROP` in `build.py`, `gen_samples.py`), the second core (`FELUCCA_CPU2=0`, about 6 KB of RAM), optional
    UI assets. Bring the measured numbers and a recommendation; never cut an engine or a feature without asking.
+   Code comes first (the user, 2026-10-24: "shrink code and remove unnecessary things first, like debug code, console
+   commands"): the fit tools of section 7.
 4. **The radio calibration must survive.** The radio uses the stock firmware's stored trim (the JieLi config store's
    item 187, 68 bytes, somewhere in flash 0xE5000..0xFBFFF; `ble/ble_vm.c`). Running the trim instead hangs. Any
    firmware that writes there (Felucca's autosave 0xE5000, Skiff's pattern bank 0xE7000, SLOOP's USR4 0xE7000..)
@@ -99,6 +101,22 @@ console's `ble` word calls `ble_console(args)`.
 5. Full suite, the plain `cmp`, the Bluetooth build with every gate. Commit on `ble`, push, build the package
    (`*.fwsc`) for a device test with `tools/fm1_serial_log.py` (`ble`, `status` every 2 s) and `docs/ble/DEVICE_STEPS.md`.
 
+## 7. Fit tools (code before features)
+
+- **`BLE_CONSOLE`** (layer 1: `ble/ble_core.h`, `fm1_ble_hal.h`, `ble/ble_os.h`; default 1). `-DBLE_CONSOLE=0` (in
+  `build.py`'s flags, so the core's unit and the BLE unit agree) compiles out the console's `ble` words (`ble_console`,
+  `ble_status`, `ble_list`, `say_state`, `ble_cmd_parse` / `_refuse`, the text helpers, `ble scan`'s window) and the
+  diagnostics only they print: the main loop's period (`ble_loop_note`), the longest task run, the tasks' stack
+  high-water read, the libraries' longest interrupts-off (`fm1_ble_irq_max`), the delay and interrupt counters in
+  `ble_diag` (the fault path's record, the stage and the task trace stay), and the core hooks `core_audio_late`,
+  `core_audio_gap_us`, `core_ui_frames`, `core_ble_in_drops` (not declared then: the core must not define them).
+  The core's side follows it: its console's `ble` and `fml` words and `audio.c`'s gap measure under `BLE_CONSOLE`.
+  Skiff: about 5.8 KB. The serial logger (`tools/fm1_serial_log.py`) then reads no Bluetooth state: rebuild with
+  `BLE_CONSOLE=1` for a device test that needs it. With the default the build is byte-identical (Felucca checked).
+- **The BLE unit for size**: `build.py` compiles `ble.c` with `-Oz` instead of `-Os` (Skiff: 552 B). Its delays are
+  calibrated against TIMER4 at start-up (`ble_port.c`), so the counted loops keep their length.
+- **The top-bar icon** (layer 4) is optional; the page's state line says the same (Skiff: about 240 B).
+
 ## 6. Known differences between firmwares (2026-10-23)
 
 | | Felucca 1.6.1 | Hortator 0.23 | Skiff 1.4 | SLOOP 2.8 |
@@ -106,7 +124,7 @@ console's `ble` word calls `ble_console(args)`.
 | base | 1.6.1 | a Felucca fork with its own releases (its gates pin drum-v0.23.2) | Felucca 1.1.5 + 1.6.1 merges | Felucca ~1.0, hand-ported |
 | settings | favorites table rows | packed bits; the devices in a new object (planned: 0x9F000 / 0xFE000) | favorites table rows | multi-part settings object |
 | plain image / free | 511 KB / 70 KB | 328 KB / 253 KB | 581 KB / 0.2 KB | 567 KB / 14 KB |
-| Bluetooth image / free | 551 KB / 30.7 KB | 478 KB / 103.5 KB | 581 KB / 0.7 KB | 580 KB / 1.4 KB |
-| Bluetooth build cuts | PIANO, FLUTE, SAX; one core | none (FX chorus buffer to `.bss`) | the built-in samples move to a pack in user slots USR2/USR3 (installed from the site; one user slot left); SMC-Mixer layout (MIDI mode instead); pixel fonts, 48 kHz USB audio; one core; delay line -25 % (1.11 s) | BASS, VIBES, HORNS, FLUTE; boot logo as text; smaller pool margin; track 3's default LOFI KEYS |
+| Bluetooth image / free | 551 KB / 30.7 KB | 478 KB / 103.5 KB | 576 KB / 5.5 KB | 580 KB / 1.4 KB |
+| Bluetooth build cuts | PIANO, FLUTE, SAX; one core | none (FX chorus buffer to `.bss`) | the built-in samples move to a pack in user slots USR2/USR3 (installed from the site; one user slot left); the console's `ble` / `fml` and their diagnostics (`BLE_CONSOLE=0`), the BLE unit at `-Oz`, no top-bar icon; pixel fonts, 48 kHz USB audio; one core; delay line -25 % (1.11 s) | BASS, VIBES, HORNS, FLUTE; boot logo as text; smaller pool margin; track 3's default LOFI KEYS |
 | branch | DeadActive/Felucca `ble-kit` | DeadActive/hortator `ble` | DeadActive/skiff `ble` | DeadActive/sloop-fm1 `ble` |
 | RF trim at risk from | autosave 0xE5000 | nothing | pattern bank 0xE7000 | USR4 0xE7000 |
